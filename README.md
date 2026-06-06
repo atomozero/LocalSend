@@ -72,3 +72,7 @@ ricevente e la simmetria mittente/ricevente.
 - Serve che UNA sola parte alzi il server HTTP.
 - Upload API: prepare-upload (metadati) -> upload (binario) -> cancel.
 - Fonte: repo ufficiale `localsend/protocol`, README v2.1.
+
+## Licenza
+
+MIT. Vedi il file `LICENSE`.
