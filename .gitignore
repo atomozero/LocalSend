@@ -12,3 +12,7 @@ tools/check/json.hpp
 # Build
 build/
 *.o
+/localsend-send
+
+# Fingerprint generato a runtime
+localsend_fingerprint

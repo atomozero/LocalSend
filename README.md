@@ -4,8 +4,23 @@ Client nativo Haiku per il protocollo LocalSend v2.1: scambio file in LAN con
 qualsiasi dispositivo (Android, iOS, Windows, macOS, Linux) che usi LocalSend,
 senza internet e senza server di terze parti.
 
-Stato attuale: fase di progettazione. Nessun client implementato ancora. Prima
-si verificano le incognite tecniche su Haiku, poi si parte dal milestone L0.
+Stato attuale: L0 implementato (mittente). `localsend-send` invia file a una
+istanza LocalSend esistente. Zero dipendenze esterne (socket BSD + modulo JSON
+interno), compila su Haiku con un solo comando.
+
+## Build ed uso (L0)
+
+```
+make                 # su Haiku (usa -lnetwork)
+./localsend-send <host> <file> [file...] [--pin PIN] [--port PORTA] [--alias NOME]
+
+# esempio: invio a un telefono con LocalSend
+./localsend-send 192.168.1.42 ./foto.png ./note.txt --pin 123456
+```
+
+Provato end to end contro un ricevente fittizio: prepare-upload, upload binario
+con sessionId/fileId/token corretti, cancel su errore. Va ora provato contro un
+client LocalSend ufficiale su Haiku reale.
 
 ## Documenti
 
