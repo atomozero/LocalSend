@@ -8,6 +8,12 @@ Stato attuale: L0 implementato (mittente). `localsend-send` invia file a una
 istanza LocalSend esistente. Zero dipendenze esterne (socket BSD + modulo JSON
 interno), compila su Haiku con un solo comando.
 
+In preparazione (L1-prep): pronto e testato il lato RICEVENTE del protocollo
+(parsing del prepare-upload in arrivo, generazione di sessionId/token, validazione
+degli upload via `ReceiveSession`) e l'interfaccia server `IHttpServer`. Manca
+solo il trasporto (server su socket) e la scrittura su disco, che richiedono
+Haiku reale. Test host-side: `make test-receive`.
+
 ## Build ed uso (L0)
 
 ```
@@ -27,12 +33,17 @@ client LocalSend ufficiale su Haiku reale.
 - `docs/00-verifica-haiku.md`: come accertare le incognite (HTTP, multicast,
   OpenSSL, JSON) sul sistema Haiku reale. Nessuna libreria e' data per scontata.
 - `docs/01-design-L0.md`: design di L0 (Haiku come solo mittente HTTP).
+- `docs/02-design-L1.md`: design di L1 (Haiku ricevente) e cosa e' gia' pronto.
 
-## De-risking
+## De-risking e test
 
 `tools/check/` contiene piccoli programmi da compilare ed eseguire su Haiku per
 provare multicast UDP, trasporto TCP nei due versi, OpenSSL e JSON. Vedi
 `tools/check/README.md`.
+
+`tools/check/test_receive.cpp` e' invece un test host-side (logica di protocollo
+pura, niente rete): gira ovunque con `make test-receive` e verifica il lato
+ricevente e la simmetria mittente/ricevente.
 
 ## Milestone (ognuno spedibile da solo)
 

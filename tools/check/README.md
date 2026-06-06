@@ -4,6 +4,10 @@ Piccoli programmi per accertare le incognite tecniche PRIMA di scrivere il
 client vero. Vanno compilati ed eseguiti su Haiku reale (o VM), non in CI.
 Dettagli e interpretazione in `../../docs/00-verifica-haiku.md`.
 
+Eccezione: `test_receive.cpp` NON e' un test di rete su Haiku, ma un test
+host-side della logica di protocollo del ricevente (L1-prep). Gira ovunque con
+`make test-receive` dalla radice del repo. Vedi `../../docs/02-design-L1.md`.
+
 ## Build (su Haiku)
 
 ```
