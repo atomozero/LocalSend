@@ -1,0 +1,14 @@
+# Binari di de-risking compilati su Haiku
+tools/check/test_multicast
+tools/check/test_openssl
+tools/check/test_tcp_http
+tools/check/test_json
+# Header JSON vendorizzato a parte (scaricarlo localmente)
+tools/check/json.hpp
+
+# Certificati di prova
+*.pem
+
+# Build
+build/
+*.o
