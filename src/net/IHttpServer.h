@@ -50,10 +50,15 @@ public:
     virtual void route(const std::string& method, const std::string& path,
                        Handler handler) = 0;
 
-    // Avvia l'ascolto sulla porta indicata. Ritorna false se il bind fallisce.
+    // Prepara l'ascolto sulla porta (socket/bind/listen). Ritorna false se il
+    // bind fallisce (es. porta occupata). Non blocca.
     virtual bool start(int port) = 0;
 
-    // Ferma il server e libera la porta.
+    // Entra nel loop di accept e serve le richieste finche' stop() non e'
+    // chiamato (da un altro thread o da un gestore di segnale). Bloccante.
+    virtual void run() = 0;
+
+    // Ferma il loop e libera la porta.
     virtual void stop() = 0;
 };
 

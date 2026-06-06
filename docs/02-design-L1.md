@@ -102,16 +102,21 @@ src/
     main_receive.cpp     # DA FARE in L1: CLI "localsend-receive [--dir ...]"
 ```
 
-Cosa e' GIA' pronto (L1-prep, con test `tools/check/test_receive.cpp`):
+Tutto IMPLEMENTATO. Logica di protocollo con test `tools/check/test_receive.cpp`;
+catena completa provata end-to-end su host (mittente -> ricevente in loopback,
+file con SHA-256 identico all'origine):
 - `IHttpServer.h`, `HttpServerSupport.cpp` (urlDecode/parseQuery).
 - `ReceiveSession` completo: prepare/validate/markReceived/isComplete/cancel.
 - `parsePrepareUploadRequest` / `buildPrepareUploadResponse` con round-trip
   verificato contro il lato mittente.
+- `SocketHttpServer` (server HTTP/1.1 su socket BSD, monothread).
+- `FileSink` (scrittura su disco: sanifica il nome, .part + rename, no overwrite).
+- `main_receive.cpp` (CLI `localsend-receive`) + target di build.
 
-Cosa resta a L1 vero e proprio (richiede Haiku reale per il test di rete):
-- `SocketHttpServer` (trasporto).
-- `FileSink` (scrittura su disco sicura).
-- `main_receive.cpp` (CLI) + target di build.
+Resta da verificare su HARDWARE: comportamento di rete su Haiku reale e
+interoperabilita' con un client LocalSend ufficiale (telefono). Possibili
+raffinamenti: streaming dell'upload su disco senza tenerlo in RAM, e concorrenza
+multi-connessione.
 
 ## 6. Flusso del ricevente (L1)
 

@@ -13,6 +13,11 @@ tools/check/json.hpp
 build/
 *.o
 /localsend-send
+/localsend-receive
+test-receive-bin
 
 # Fingerprint generato a runtime
 localsend_fingerprint
+
+# File ricevuti a runtime (cartella di default del ricevente)
+/ricevuti/
