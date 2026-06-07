@@ -2,20 +2,23 @@
 // MIME, tempi modified/accessed in ISO 8601. Il MIME qui e' basato
 // sull'estensione (portabile); il MIME nativo Haiku (BNodeInfo) e' un
 // miglioramento previsto in L4.
-#pragma once
+#ifndef _LOCALSEND_FILE_SOURCE_H
+#define _LOCALSEND_FILE_SOURCE_H
 
 #include <string>
 
 #include "protocol/Models.h"
 
-namespace ls {
+namespace LocalSend {
 
 // Costruisce i metadati per il file in 'localPath' con id assegnato.
 // Ritorna false se il file non e' leggibile o non e' un file regolare.
-bool buildFileMetadata(const std::string& localPath, const std::string& id,
-                       FileMetadata& out);
+bool BuildFileMetadata(const std::string& localPath, const std::string& id,
+	FileMetadata& out);
 
 // MIME indovinato dall'estensione, fallback application/octet-stream.
-std::string guessMimeType(const std::string& fileName);
+std::string GuessMimeType(const std::string& fileName);
 
-} // namespace ls
+} // namespace LocalSend
+
+#endif // _LOCALSEND_FILE_SOURCE_H

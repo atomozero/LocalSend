@@ -1,33 +1,36 @@
-// Server HTTP/1.1 su socket BSD, realizza IHttpServer. Portabile e garantito su
-// Haiku (link -lnetwork). Monothread: serve una connessione alla volta, che basta
-// al protocollo LocalSend (una sessione per volta) in L1. In L3 verra' affiancata
+// Server HTTP/1.1 su socket BSD, realizza IHttpServer. Portabile e garantito
+// su Haiku (-lnetwork). Monothread: serve una connessione alla volta, che basta
+// al protocollo LocalSend (una sessione per volta) in L1. In L3 arriva
 // una variante TLS; la concorrenza e' un raffinamento successivo.
-#pragma once
+#ifndef _LOCALSEND_SOCKET_HTTP_SERVER_H
+#define _LOCALSEND_SOCKET_HTTP_SERVER_H
 
 #include <map>
 #include <string>
 
 #include "net/IHttpServer.h"
 
-namespace ls {
+namespace LocalSend {
 
 class SocketHttpServer : public IHttpServer {
 public:
-    SocketHttpServer() = default;
-    ~SocketHttpServer() override;
+	SocketHttpServer() {}
+	virtual ~SocketHttpServer();
 
-    void route(const std::string& method, const std::string& path,
-               Handler handler) override;
-    bool start(int port) override;
-    void run() override;
-    void stop() override;
+	void Route(const std::string& method, const std::string& path,
+		Handler handler) override;
+	bool Start(int port) override;
+	void Run() override;
+	void Stop() override;
 
 private:
-    void handleConnection(int clientFd);
+	void HandleConnection(int clientFd);
 
-    int  listenFd_ = -1;
-    bool running_  = false;
-    std::map<std::string, Handler> routes_; // chiave: "METODO PATH"
+	int fListenFd = -1;
+	bool fRunning = false;
+	std::map<std::string, Handler> fRoutes; // chiave: "METODO PATH"
 };
 
-} // namespace ls
+} // namespace LocalSend
+
+#endif // _LOCALSEND_SOCKET_HTTP_SERVER_H

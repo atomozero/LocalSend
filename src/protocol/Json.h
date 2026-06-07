@@ -3,83 +3,95 @@
 // risposte (sessionId + mappa token, messaggi di errore).
 // Sostituibile in futuro con nlohmann/json senza toccare il resto: i Models
 // usano solo questa interfaccia.
-#pragma once
+#ifndef _LOCALSEND_JSON_H
+#define _LOCALSEND_JSON_H
 
 #include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-namespace ls {
+namespace LocalSend {
 
 class JsonValue {
 public:
-    enum class Type { Null, Bool, Number, String, Array, Object };
+	enum class Type { Null, Bool, Number, String, Array, Object };
 
-    JsonValue() : type_(Type::Null) {}
-    JsonValue(std::nullptr_t) : type_(Type::Null) {}
-    JsonValue(bool b) : type_(Type::Bool), bool_(b) {}
-    JsonValue(int n) : type_(Type::Number), num_(n) {}
-    JsonValue(long n) : type_(Type::Number), num_(static_cast<double>(n)) {}
-    JsonValue(long long n) : type_(Type::Number), num_(static_cast<double>(n)) {}
-    JsonValue(double n) : type_(Type::Number), num_(n) {}
-    JsonValue(const char* s) : type_(Type::String), str_(s) {}
-    JsonValue(const std::string& s) : type_(Type::String), str_(s) {}
+	JsonValue() : fType(Type::Null) {}
+	JsonValue(std::nullptr_t) : fType(Type::Null) {}
+	JsonValue(bool b) : fType(Type::Bool), fBool(b) {}
+	JsonValue(int n) : fType(Type::Number), fNumber(n) {}
+	JsonValue(long n) : fType(Type::Number), fNumber(static_cast<double>(n)) {}
+	JsonValue(long long n)
+		: fType(Type::Number), fNumber(static_cast<double>(n)) {}
+	JsonValue(double n) : fType(Type::Number), fNumber(n) {}
+	JsonValue(const char* s) : fType(Type::String), fString(s) {}
+	JsonValue(const std::string& s) : fType(Type::String), fString(s) {}
 
-    static JsonValue object() { JsonValue v; v.type_ = Type::Object; return v; }
-    static JsonValue array()  { JsonValue v; v.type_ = Type::Array;  return v; }
+	static JsonValue Object() { JsonValue v; v.fType = Type::Object; return v; }
+	static JsonValue Array()  { JsonValue v; v.fType = Type::Array;  return v; }
 
-    Type type() const { return type_; }
-    bool isNull()   const { return type_ == Type::Null; }
-    bool isObject() const { return type_ == Type::Object; }
-    bool isArray()  const { return type_ == Type::Array; }
-    bool isString() const { return type_ == Type::String; }
+	Type GetType() const { return fType; }
+	bool IsNull()   const { return fType == Type::Null; }
+	bool IsObject() const { return fType == Type::Object; }
+	bool IsArray()  const { return fType == Type::Array; }
+	bool IsString() const { return fType == Type::String; }
 
-    // Accesso/costruzione oggetto.
-    JsonValue& operator[](const std::string& key) {
-        type_ = Type::Object;
-        return obj_[key];
-    }
-    bool has(const std::string& key) const {
-        return type_ == Type::Object && obj_.find(key) != obj_.end();
-    }
-    const JsonValue& at(const std::string& key) const {
-        auto it = obj_.find(key);
-        if (it == obj_.end()) throw std::runtime_error("json: chiave assente: " + key);
-        return it->second;
-    }
-    const std::map<std::string, JsonValue>& items() const { return obj_; }
+	// Accesso/costruzione oggetto.
+	JsonValue& operator[](const std::string& key)
+	{
+		fType = Type::Object;
+		return fObject[key];
+	}
+	bool Has(const std::string& key) const
+	{
+		return fType == Type::Object && fObject.find(key) != fObject.end();
+	}
+	const JsonValue& At(const std::string& key) const
+	{
+		auto it = fObject.find(key);
+		if (it == fObject.end())
+			throw std::runtime_error("json: chiave assente: " + key);
+		return it->second;
+	}
+	const std::map<std::string, JsonValue>& Items() const { return fObject; }
 
-    // Array.
-    void push_back(const JsonValue& v) { type_ = Type::Array; arr_.push_back(v); }
-    const std::vector<JsonValue>& elements() const { return arr_; }
+	// Array.
+	void Add(const JsonValue& v) { fType = Type::Array; fArray.push_back(v); }
+	const std::vector<JsonValue>& Elements() const { return fArray; }
 
-    // Lettura scalari con default.
-    std::string asString(const std::string& def = "") const {
-        return type_ == Type::String ? str_ : def;
-    }
-    double asNumber(double def = 0) const {
-        return type_ == Type::Number ? num_ : def;
-    }
-    long long asInt(long long def = 0) const {
-        return type_ == Type::Number ? static_cast<long long>(num_) : def;
-    }
-    bool asBool(bool def = false) const {
-        return type_ == Type::Bool ? bool_ : def;
-    }
+	// Lettura scalari con default.
+	std::string AsString(const std::string& def = "") const
+	{
+		return fType == Type::String ? fString : def;
+	}
+	double AsNumber(double def = 0) const
+	{
+		return fType == Type::Number ? fNumber : def;
+	}
+	long long AsInt(long long def = 0) const
+	{
+		return fType == Type::Number ? static_cast<long long>(fNumber) : def;
+	}
+	bool AsBool(bool def = false) const
+	{
+		return fType == Type::Bool ? fBool : def;
+	}
 
-    std::string dump() const;
-    static JsonValue parse(const std::string& text);
+	std::string Dump() const;
+	static JsonValue Parse(const std::string& text);
 
 private:
-    Type type_;
-    bool bool_ = false;
-    double num_ = 0;
-    std::string str_;
-    std::vector<JsonValue> arr_;
-    std::map<std::string, JsonValue> obj_;
+	Type fType;
+	bool fBool = false;
+	double fNumber = 0;
+	std::string fString;
+	std::vector<JsonValue> fArray;
+	std::map<std::string, JsonValue> fObject;
 
-    void dumpTo(std::string& out) const;
+	void DumpTo(std::string& out) const;
 };
 
-} // namespace ls
+} // namespace LocalSend
+
+#endif // _LOCALSEND_JSON_H

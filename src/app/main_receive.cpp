@@ -1,5 +1,5 @@
 // localsend-receive: ricevente L1. Alza un server HTTP e riceve file da una
-// istanza LocalSend esistente (es. telefono) che fa da mittente. Niente scoperta
+// istanza LocalSend (es. telefono) che fa da mittente. Niente scoperta
 // automatica (e' L2): il mittente raggiunge questa macchina per IP.
 //
 //   localsend-receive [--dir CARTELLA] [--port PORTA] [--alias NOME]
@@ -23,144 +23,162 @@
 #include "server/FileSink.h"
 #include "server/ReceiveSession.h"
 
-using namespace ls;
+using namespace LocalSend;
 
 namespace {
 
-SocketHttpServer* g_server = nullptr;
+SocketHttpServer* gServer = nullptr;
 
-void onSignal(int) {
-    if (g_server) g_server->stop();
+void
+OnSignal(int)
+{
+	if (gServer)
+		gServer->Stop();
 }
 
-void usage(const char* argv0) {
-    fprintf(stderr, "uso: %s [--dir CARTELLA] [--port PORTA] [--alias NOME]\n",
-            argv0);
+
+void
+Usage(const char* argv0)
+{
+	fprintf(stderr, "uso: %s [--dir CARTELLA] [--port PORTA] [--alias NOME]\n",
+		argv0);
 }
 
 } // namespace
 
-int main(int argc, char** argv) {
-    // Log a riga: cosi' l'output compare subito anche se rediretto su file
-    // (un server gira a lungo; senza questo il buffer a blocchi nasconde i log).
-    setvbuf(stdout, nullptr, _IOLBF, 0);
 
-    signal(SIGPIPE, SIG_IGN); // niente crash se il peer chiude a meta' upload
-    signal(SIGINT, onSignal);
-    signal(SIGTERM, onSignal);
+int
+main(int argc, char** argv)
+{
+	// Log a riga: cosi' l'output compare subito anche se rediretto su file
+	// (un server gira a lungo; senza, il buffer a blocchi nasconde i log).
+	setvbuf(stdout, nullptr, _IOLBF, 0);
 
-    std::string destDir = "./ricevuti";
-    int port = kDefaultPort;
-    std::string alias = "Haiku Box";
+	signal(SIGPIPE, SIG_IGN); // niente crash se il peer chiude a meta' upload
+	signal(SIGINT, OnSignal);
+	signal(SIGTERM, OnSignal);
 
-    for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        if (a == "--dir" && i + 1 < argc) { destDir = argv[++i]; }
-        else if (a == "--port" && i + 1 < argc) { port = atoi(argv[++i]); }
-        else if (a == "--alias" && i + 1 < argc) { alias = argv[++i]; }
-        else { usage(argv[0]); return 2; }
-    }
+	std::string destDir = "./ricevuti";
+	int port = kDefaultPort;
+	std::string alias = "Haiku Box";
 
-    // Identita' del device (per ora solo a scopo di log; usata davvero da L2).
-    DeviceInfo info;
-    info.alias = alias;
-    info.port = port;
-    info.fingerprint = loadOrCreateFingerprint("./localsend_fingerprint");
+	for (int i = 1; i < argc; ++i) {
+		std::string a = argv[i];
+		if (a == "--dir" && i + 1 < argc) {
+			destDir = argv[++i];
+		} else if (a == "--port" && i + 1 < argc) {
+			port = atoi(argv[++i]);
+		} else if (a == "--alias" && i + 1 < argc) {
+			alias = argv[++i];
+		} else {
+			Usage(argv[0]);
+			return 2;
+		}
+	}
 
-    FileSink sink(destDir);
-    std::string err;
-    if (!sink.ensureDir(&err)) {
-        fprintf(stderr, "cartella di destinazione non utilizzabile: %s\n",
-                err.c_str());
-        return 1;
-    }
+	// Identita' del device (per ora solo a scopo di log; usata davvero da L2).
+	DeviceInfo info;
+	info.alias = alias;
+	info.port = port;
+	info.fingerprint = LoadOrCreateFingerprint("./localsend_fingerprint");
 
-    ReceiveSession session;
-    SocketHttpServer server;
-    g_server = &server;
+	FileSink sink(destDir);
+	std::string err;
+	if (!sink.EnsureDir(&err)) {
+		fprintf(stderr, "cartella di destinazione non utilizzabile: %s\n",
+			err.c_str());
+		return 1;
+	}
 
-    // 1) prepare-upload: leggi metadati, accetta, genera sessionId + token.
-    server.route("POST", kApiPrepareUpload, [&](const HttpRequest& req) {
-        IncomingPrepareUpload in;
-        try {
-            in = parsePrepareUploadRequest(req.body);
-        } catch (const std::exception& e) {
-            fprintf(stderr, "prepare-upload non valido: %s\n", e.what());
-            return HttpServerResponse::empty(400);
-        }
+	ReceiveSession session;
+	SocketHttpServer server;
+	gServer = &server;
 
-        PrepareOutcome out = session.prepare(in); // accetta tutto in L1
-        switch (out.status) {
-            case PrepareStatus::SessionBusy:
-                return HttpServerResponse::empty(409);
-            case PrepareStatus::NothingAccepted:
-                return HttpServerResponse::empty(204);
-            case PrepareStatus::Accepted:
-                break;
-        }
+	// 1) prepare-upload: leggi metadati, accetta, genera sessionId + token.
+	server.Route("POST", kApiPrepareUpload, [&](const HttpRequest& req) {
+		IncomingPrepareUpload in;
+		try {
+			in = ParsePrepareUploadRequest(req.body);
+		} catch (const std::exception& e) {
+			fprintf(stderr, "prepare-upload non valido: %s\n", e.what());
+			return HttpServerResponse::Empty(400);
+		}
 
-        printf("\nRichiesta da \"%s\" (%s): %zu file\n", in.sender.alias.c_str(),
-               in.sender.deviceType.c_str(), in.files.size());
-        for (const auto& f : in.files)
-            printf("  - %s (%lld byte, %s)\n", f.fileName.c_str(), f.size,
-                   f.fileType.c_str());
-        printf("Sessione %s avviata; in attesa degli upload...\n",
-               out.result.sessionId.c_str());
+		PrepareOutcome out = session.Prepare(in); // accetta tutto in L1
+		switch (out.status) {
+			case PrepareStatus::SessionBusy:
+				return HttpServerResponse::Empty(409);
+			case PrepareStatus::NothingAccepted:
+				return HttpServerResponse::Empty(204);
+			case PrepareStatus::Accepted:
+				break;
+		}
 
-        return HttpServerResponse::json(
-            200, buildPrepareUploadResponse(out.result.sessionId,
-                                            out.result.fileTokens).dump());
-    });
+		printf("\nRichiesta da \"%s\" (%s): %zu file\n",
+			in.sender.alias.c_str(), in.sender.deviceType.c_str(),
+			in.files.size());
+		for (const auto& f : in.files) {
+			printf("  - %s (%lld byte, %s)\n", f.fileName.c_str(), f.size,
+				f.fileType.c_str());
+		}
+		printf("Sessione %s avviata; in attesa degli upload...\n",
+			out.result.sessionId.c_str());
 
-    // 2) upload: valida token, scrivi i byte su disco, segna come ricevuto.
-    server.route("POST", kApiUpload, [&](const HttpRequest& req) {
-        std::string sessionId = req.q("sessionId");
-        std::string fileId    = req.q("fileId");
-        std::string token     = req.q("token");
+		return HttpServerResponse::Json(200,
+			BuildPrepareUploadResponse(out.result.sessionId,
+				out.result.fileTokens).Dump());
+	});
 
-        if (!session.validateUpload(sessionId, fileId, token))
-            return HttpServerResponse::empty(403);
+	// 2) upload: valida token, scrivi i byte su disco, segna come ricevuto.
+	server.Route("POST", kApiUpload, [&](const HttpRequest& req) {
+		std::string sessionId = req.Query("sessionId");
+		std::string fileId = req.Query("fileId");
+		std::string token = req.Query("token");
 
-        const FileMetadata* meta = session.file(fileId);
-        std::string name = meta ? meta->fileName : fileId;
+		if (!session.ValidateUpload(sessionId, fileId, token))
+			return HttpServerResponse::Empty(403);
 
-        std::string outPath, werr;
-        if (!sink.save(name, req.body, &outPath, &werr)) {
-            fprintf(stderr, "scrittura fallita (%s): %s\n", name.c_str(),
-                    werr.c_str());
-            return HttpServerResponse::empty(500);
-        }
+		const FileMetadata* meta = session.File(fileId);
+		std::string name = meta ? meta->fileName : fileId;
 
-        session.markReceived(fileId);
-        printf("  [RICEVUTO] %s -> %s (%zu byte)\n", name.c_str(),
-               outPath.c_str(), req.body.size());
+		std::string outPath, werr;
+		if (!sink.Save(name, req.body, &outPath, &werr)) {
+			fprintf(stderr, "scrittura fallita (%s): %s\n", name.c_str(),
+				werr.c_str());
+			return HttpServerResponse::Empty(500);
+		}
 
-        if (session.isComplete()) {
-            printf("Sessione completata: tutti i file ricevuti.\n");
-            session.reset();
-        }
-        return HttpServerResponse::empty(200);
-    });
+		session.MarkReceived(fileId);
+		printf("  [RICEVUTO] %s -> %s (%zu byte)\n", name.c_str(),
+			outPath.c_str(), req.body.size());
 
-    // 3) cancel: annulla la sessione in corso.
-    server.route("POST", kApiCancel, [&](const HttpRequest& req) {
-        if (session.cancel(req.q("sessionId")))
-            printf("Sessione annullata dal mittente.\n");
-        return HttpServerResponse::empty(200);
-    });
+		if (session.IsComplete()) {
+			printf("Sessione completata: tutti i file ricevuti.\n");
+			session.Reset();
+		}
+		return HttpServerResponse::Empty(200);
+	});
 
-    if (!server.start(port)) {
-        fprintf(stderr, "impossibile aprire la porta %d (gia' in uso?)\n", port);
-        return 1;
-    }
+	// 3) cancel: annulla la sessione in corso.
+	server.Route("POST", kApiCancel, [&](const HttpRequest& req) {
+		if (session.Cancel(req.Query("sessionId")))
+			printf("Sessione annullata dal mittente.\n");
+		return HttpServerResponse::Empty(200);
+	});
 
-    printf("Ricevente: %s (fp %.8s...)\n", info.alias.c_str(),
-           info.fingerprint.c_str());
-    printf("In ascolto su 0.0.0.0:%d  ->  cartella %s\n", port, sink.dir().c_str());
-    printf("Premi Ctrl-C per uscire.\n");
+	if (!server.Start(port)) {
+		fprintf(stderr, "impossibile aprire la porta %d (occupata?)\n", port);
+		return 1;
+	}
 
-    server.run();
+	printf("Ricevente: %s (fp %.8s...)\n", info.alias.c_str(),
+		info.fingerprint.c_str());
+	printf("In ascolto su 0.0.0.0:%d  ->  cartella %s\n", port,
+		sink.Dir().c_str());
+	printf("Premi Ctrl-C per uscire.\n");
 
-    printf("\nServer fermato.\n");
-    return 0;
+	server.Run();
+
+	printf("\nServer fermato.\n");
+	return 0;
 }

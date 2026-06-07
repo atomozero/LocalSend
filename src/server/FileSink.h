@@ -5,34 +5,37 @@
 //   interrotto non lascia un file dall'aspetto valido;
 // - evita di sovrascrivere file esistenti (aggiunge un suffisso numerico).
 // Portabile (POSIX): vale su Haiku e su host di sviluppo.
-#pragma once
+#ifndef _LOCALSEND_FILE_SINK_H
+#define _LOCALSEND_FILE_SINK_H
 
 #include <string>
 
-namespace ls {
+namespace LocalSend {
 
 class FileSink {
 public:
-    explicit FileSink(std::string destDir);
+	explicit FileSink(std::string destDir);
 
-    // Crea la cartella di destinazione se manca. false su errore (err popolato).
-    bool ensureDir(std::string* err = nullptr) const;
+	// Crea la cartella di destinazione se manca. false su errore.
+	bool EnsureDir(std::string* err = nullptr) const;
 
-    // Salva 'bytes' come 'fileName' (sanificato) dentro destDir. Scrive su .part
-    // e rinomina. In outPath il percorso finale. false su errore (err popolato).
-    bool save(const std::string& fileName, const std::string& bytes,
-              std::string* outPath = nullptr, std::string* err = nullptr) const;
+	// Salva 'bytes' come 'fileName' (sanificato) in destDir. Scrive su .part
+	// e rinomina. In outPath il percorso finale. false su errore.
+	bool Save(const std::string& fileName, const std::string& bytes,
+		std::string* outPath = nullptr, std::string* err = nullptr) const;
 
-    // Riduce un nome a un nome-file sicuro: solo il basename, mai vuoto/"."/"..".
-    static std::string sanitize(const std::string& fileName);
+	// Nome-file sicuro: solo il basename, mai vuoto/"."/"..".
+	static std::string Sanitize(const std::string& fileName);
 
-    const std::string& dir() const { return destDir_; }
+	const std::string& Dir() const { return fDestDir; }
 
 private:
-    // Percorso libero dentro destDir per 'name' (aggiunge -1, -2... se occupato).
-    std::string uniquePath(const std::string& name) const;
+	// Percorso libero in destDir per 'name' (aggiunge -1, -2... se occupato).
+	std::string UniquePath(const std::string& name) const;
 
-    std::string destDir_;
+	std::string fDestDir;
 };
 
-} // namespace ls
+} // namespace LocalSend
+
+#endif // _LOCALSEND_FILE_SINK_H

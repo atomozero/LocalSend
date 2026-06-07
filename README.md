@@ -46,6 +46,7 @@ provato contro un client LocalSend ufficiale su Haiku reale.
   OpenSSL, JSON) sul sistema Haiku reale. Nessuna libreria e' data per scontata.
 - `docs/01-design-L0.md`: design di L0 (Haiku come solo mittente HTTP).
 - `docs/02-design-L1.md`: design di L1 (Haiku ricevente) e cosa e' gia' pronto.
+- `docs/coding-style.md`: stile del codice (linee guida Haiku) seguito dal repo.
 
 ## De-risking e test
 
