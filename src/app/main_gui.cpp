@@ -394,37 +394,45 @@ class SettingsWindow : public BWindow {
 public:
 	SettingsWindow(AppSettings* settings, BWindow* target)
 		:
-		BWindow(BRect(150, 150, 580, 560), Tr(S_SETTINGS_TITLE),
+		BWindow(BRect(150, 150, 560, 530), Tr(S_SETTINGS_TITLE),
 			B_TITLED_WINDOW,
 			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
 				| B_CLOSE_ON_ESCAPE),
 		fSettings(settings),
 		fTarget(target)
 	{
-		// Generale.
+		// Campi.
 		fAliasField = new BTextControl(Tr(S_DEVICE_NAME),
 			settings->alias.c_str(), NULL);
 		fDestDirField = new BTextControl(Tr(S_SAVE_FOLDER),
 			settings->destDir.c_str(), NULL);
-		BButton* browseBtn = new BButton("Sfoglia\xE2\x80\xA6",
+		BButton* browseBtn = new BButton(Tr(S_BROWSE),
 			new BMessage(kMsgBrowseDir));
 
-		// Rete.
 		BString portStr;
 		portStr << settings->port;
 		fPortField = new BTextControl(Tr(S_PORT), portStr.String(), NULL);
 
-		// Sicurezza.
 		fPinField = new BTextControl(Tr(S_PIN_LABEL),
 			settings->pin.c_str(), NULL);
-		fQuickSaveBox = new BCheckBox(Tr(S_QUICK_SAVE),
-			NULL);
+		fQuickSaveBox = new BCheckBox(Tr(S_QUICK_SAVE), NULL);
 		fQuickSaveBox->SetValue(settings->quickSave ? B_CONTROL_ON
 			: B_CONTROL_OFF);
 		fHttpsBox = new BCheckBox(Tr(S_ENABLE_HTTPS), NULL);
-		fHttpsBox->SetValue(settings->https ? B_CONTROL_ON
-			: B_CONTROL_OFF);
-		fHttpsBox->SetEnabled(false); // sempre attivo
+		fHttpsBox->SetValue(B_CONTROL_ON);
+		fHttpsBox->SetEnabled(false);
+
+		// Lingua.
+		fLangMenu = new BPopUpMenu("lang");
+		for (int i = 0; i < kLangCount; i++) {
+			BMenuItem* item = new BMenuItem(
+				LanguageName((Language)i), NULL);
+			if (strcmp(LanguageCode((Language)i),
+					settings->language.c_str()) == 0)
+				item->SetMarked(true);
+			fLangMenu->AddItem(item);
+		}
+		fLangField = new BMenuField(Tr(S_LANGUAGE), fLangMenu);
 
 		// Pulsanti.
 		BButton* saveBtn = new BButton(Tr(S_SAVE),
@@ -432,47 +440,31 @@ public:
 		BButton* cancelBtn = new BButton(Tr(S_CANCEL),
 			new BMessage(B_QUIT_REQUESTED));
 
-		// Sezioni con BBox.
-		BBox* generalBox = new BBox("generale");
-		generalBox->SetLabel(Tr(S_GENERAL));
-		BLayoutBuilder::Group<>(generalBox, B_VERTICAL,
-				B_USE_HALF_ITEM_SPACING)
-			.SetInsets(B_USE_ITEM_INSETS, B_USE_BIG_INSETS,
-				B_USE_ITEM_INSETS, B_USE_ITEM_INSETS)
+		// Intestazioni sezione (grassetto).
+		auto MakeLabel = [](const char* text) {
+			BStringView* sv = new BStringView("", text);
+			sv->SetFont(be_bold_font);
+			return sv;
+		};
+
+		// Layout senza BBox (piu' stabile).
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(MakeLabel(Tr(S_GENERAL)))
 			.Add(fAliasField)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(fDestDirField, 1.0)
 				.Add(browseBtn, 0.0)
 			.End()
 			.Add(fLangField)
-		.End();
-
-		BBox* netBox = new BBox("rete");
-		netBox->SetLabel(Tr(S_NETWORK));
-		BLayoutBuilder::Group<>(netBox, B_VERTICAL,
-				B_USE_HALF_ITEM_SPACING)
-			.SetInsets(B_USE_ITEM_INSETS, B_USE_BIG_INSETS,
-				B_USE_ITEM_INSETS, B_USE_ITEM_INSETS)
+			.AddStrut(B_USE_ITEM_SPACING)
+			.Add(MakeLabel(Tr(S_NETWORK)))
 			.Add(fPortField)
 			.Add(fHttpsBox)
-		.End();
-
-		BBox* secBox = new BBox("sicurezza");
-		secBox->SetLabel(Tr(S_SECURITY));
-		BLayoutBuilder::Group<>(secBox, B_VERTICAL,
-				B_USE_HALF_ITEM_SPACING)
-			.SetInsets(B_USE_ITEM_INSETS, B_USE_BIG_INSETS,
-				B_USE_ITEM_INSETS, B_USE_ITEM_INSETS)
+			.AddStrut(B_USE_ITEM_SPACING)
+			.Add(MakeLabel(Tr(S_SECURITY)))
 			.Add(fPinField)
 			.Add(fQuickSaveBox)
-		.End();
-
-		// Layout principale.
-		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_DEFAULT_SPACING)
-			.SetInsets(B_USE_WINDOW_INSETS)
-			.Add(generalBox)
-			.Add(netBox)
-			.Add(secBox)
 			.AddGlue()
 			.AddGroup(B_HORIZONTAL)
 				.AddGlue()
@@ -483,8 +475,6 @@ public:
 
 		fDirPanel = new BFilePanel(B_OPEN_PANEL, new BMessenger(this),
 			NULL, B_DIRECTORY_NODE, false, new BMessage(kMsgDirSelected));
-		fDirPanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_SAVE));
-		fDirPanel->Window()->SetTitle(Tr(S_SAVE_FOLDER));
 
 		CenterIn(target->Frame());
 	}
