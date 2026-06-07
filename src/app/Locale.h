@@ -333,11 +333,12 @@ SetLanguageFromName(const char* name)
 {
 	if (!name || !*name)
 		return;
-	if (strcmp(name, "en") == 0) sCurrentLang = kLangEnglish;
-	else if (strcmp(name, "it") == 0) sCurrentLang = kLangItalian;
-	else if (strcmp(name, "ja") == 0) sCurrentLang = kLangJapanese;
-	else if (strcmp(name, "zh") == 0) sCurrentLang = kLangChinese;
-	else if (strcmp(name, "es") == 0) sCurrentLang = kLangSpanish;
+	// Confronta i primi 2 caratteri (codice lingua ISO 639-1).
+	if (strncmp(name, "en", 2) == 0) sCurrentLang = kLangEnglish;
+	else if (strncmp(name, "it", 2) == 0) sCurrentLang = kLangItalian;
+	else if (strncmp(name, "ja", 2) == 0) sCurrentLang = kLangJapanese;
+	else if (strncmp(name, "zh", 2) == 0) sCurrentLang = kLangChinese;
+	else if (strncmp(name, "es", 2) == 0) sCurrentLang = kLangSpanish;
 }
 
 inline const char*

@@ -20,6 +20,7 @@
 #include <GroupLayout.h>
 #include <LayoutBuilder.h>
 #include <ListItem.h>
+#include <LocaleRoster.h>
 #include <ListView.h>
 #include <MenuItem.h>
 #include <MenuField.h>
@@ -82,13 +83,32 @@ struct AppSettings {
 	std::string pin;
 	bool quickSave = false;
 	bool https = true;
-	std::string language = "it";
+	std::string language;
+
+	void DetectSystemLanguage()
+	{
+		if (!language.empty())
+			return; // gia' impostata dall'utente
+		BMessage preferred;
+		if (BLocaleRoster::Default()->GetPreferredLanguages(&preferred)
+				== B_OK) {
+			const char* lang = nullptr;
+			if (preferred.FindString("language", &lang) == B_OK && lang)
+				language = std::string(lang, 2); // primi 2 char
+		}
+		if (language.empty())
+			language = "en"; // fallback
+	}
 
 	void Load(const std::string& path)
 	{
+		bool hasLang = false;
 		FILE* f = fopen(path.c_str(), "r");
-		if (!f)
+		if (!f) {
+			DetectSystemLanguage();
+			SetLanguageFromName(language.c_str());
 			return;
+		}
 		char line[512];
 		while (fgets(line, sizeof(line), f)) {
 			std::string l(line);
@@ -106,9 +126,14 @@ struct AppSettings {
 			else if (key == "pin") pin = val;
 			else if (key == "quickSave") quickSave = (val == "1");
 			else if (key == "https") https = (val == "1");
-			else if (key == "language") language = val;
+			else if (key == "language") {
+				language = val;
+				hasLang = true;
+			}
 		}
 		fclose(f);
+		if (!hasLang)
+			DetectSystemLanguage();
 		SetLanguageFromName(language.c_str());
 	}
 
