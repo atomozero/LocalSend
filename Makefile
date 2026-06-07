@@ -31,7 +31,7 @@ RECV_SRC = $(PROTO) \
 	src/server/ReceiveSession.cpp \
 	src/app/main_receive.cpp
 
-RECV_LIBS = $(LDLIBS) -lssl -lcrypto
+SSL_LIBS = -lssl -lcrypto
 
 SEND_OBJ = $(SEND_SRC:.cpp=.o)
 RECV_OBJ = $(RECV_SRC:.cpp=.o)
@@ -41,10 +41,10 @@ RECV_BIN = localsend-receive
 all: $(SEND_BIN) $(RECV_BIN)
 
 $(SEND_BIN): $(SEND_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS) $(SSL_LIBS)
 
 $(RECV_BIN): $(RECV_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(RECV_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS) $(SSL_LIBS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@

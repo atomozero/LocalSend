@@ -113,6 +113,7 @@ main(int argc, char** argv)
 		files.size(), pin.empty() ? "" : "  (con PIN)");
 
 	SocketHttpClient http;
+	http.EnableTls();
 	UploadSession session(http, info);
 	SendReport report = session.Send(host, port, files, pin);
 

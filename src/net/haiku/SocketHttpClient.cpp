@@ -4,9 +4,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <stdexcept>
 
 namespace LocalSend {
@@ -18,7 +22,8 @@ UrlEncode(const std::string& s)
 	std::string out;
 	out.reserve(s.size() * 3);
 	for (unsigned char c : s) {
-		if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+		if (std::isalnum(c) || c == '-' || c == '_'
+			|| c == '.' || c == '~') {
 			out += static_cast<char>(c);
 		} else {
 			out += '%';
@@ -28,6 +33,11 @@ UrlEncode(const std::string& s)
 	}
 	return out;
 }
+
+
+// Funzioni di I/O astratte: socket nudo o SSL.
+typedef std::function<ssize_t(char*, size_t)> ReadFn;
+typedef std::function<bool(const char*, size_t)> WriteFn;
 
 
 namespace {
@@ -61,20 +71,6 @@ ConnectTo(const std::string& host, int port)
 }
 
 
-bool
-SendAll(int fd, const char* data, size_t len)
-{
-	size_t sent = 0;
-	while (sent < len) {
-		ssize_t n = send(fd, data + sent, len - sent, 0);
-		if (n <= 0)
-			return false;
-		sent += static_cast<size_t>(n);
-	}
-	return true;
-}
-
-
 std::string
 ToLower(std::string s)
 {
@@ -84,9 +80,8 @@ ToLower(std::string s)
 }
 
 
-// Legge l'intera risposta e la decompone in status/headers/body.
 HttpResponse
-ReadResponse(int fd)
+ReadResponse(const ReadFn& readFn)
 {
 	HttpResponse resp;
 	std::string buf;
@@ -98,7 +93,7 @@ ReadResponse(int fd)
 		headerEnd = buf.find("\r\n\r\n");
 		if (headerEnd != std::string::npos)
 			break;
-		ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
+		ssize_t n = readFn(tmp, sizeof(tmp));
 		if (n <= 0)
 			break;
 		buf.append(tmp, static_cast<size_t>(n));
@@ -146,22 +141,48 @@ ReadResponse(int fd)
 		}
 	}
 
-	// Body. Per L0 i ricevitori rispondono con Content-Length o chiudono.
-	if (contentLength >= 0) {
-		while (static_cast<long long>(body.size()) < contentLength) {
-			ssize_t n = recv(fd, tmp, sizeof(tmp), 0);
-			if (n <= 0)
-				break;
-			body.append(tmp, static_cast<size_t>(n));
+	// Body: leggi tutto il raw rimanente, poi decodifica se chunked.
+	auto readRemaining = [&](long long limit) {
+		if (limit >= 0) {
+			while (static_cast<long long>(body.size()) < limit) {
+				ssize_t n = readFn(tmp, sizeof(tmp));
+				if (n <= 0)
+					break;
+				body.append(tmp, static_cast<size_t>(n));
+			}
+			if (static_cast<long long>(body.size()) > limit)
+				body.resize(limit);
+		} else {
+			ssize_t n;
+			while ((n = readFn(tmp, sizeof(tmp))) > 0)
+				body.append(tmp, static_cast<size_t>(n));
 		}
-		if (static_cast<long long>(body.size()) > contentLength)
-			body.resize(contentLength);
+	};
+
+	if (contentLength >= 0) {
+		readRemaining(contentLength);
+	} else if (chunked) {
+		// Leggi tutto fino a chiusura, poi decodifica chunked.
+		readRemaining(-1);
+		// Decodifica chunked: "SIZE\r\nDATA\r\n...0\r\n\r\n"
+		std::string decoded;
+		size_t p = 0;
+		while (p < body.size()) {
+			size_t nl = body.find("\r\n", p);
+			if (nl == std::string::npos)
+				break;
+			long long chunkSize = strtoll(body.c_str() + p, nullptr, 16);
+			if (chunkSize <= 0)
+				break;
+			p = nl + 2;
+			if (p + static_cast<size_t>(chunkSize) > body.size())
+				chunkSize = static_cast<long long>(body.size() - p);
+			decoded.append(body, p, static_cast<size_t>(chunkSize));
+			p += static_cast<size_t>(chunkSize) + 2; // skip \r\n
+		}
+		body = std::move(decoded);
 	} else {
-		// Niente Content-Length: leggi fino a chiusura.
-		ssize_t n;
-		while ((n = recv(fd, tmp, sizeof(tmp), 0)) > 0)
-			body.append(tmp, static_cast<size_t>(n));
-		(void)chunked; // chunked non necessario per i body brevi di L0
+		readRemaining(-1);
 	}
 
 	resp.body = std::move(body);
@@ -181,11 +202,42 @@ BuildHead(const std::string& host, int port, const std::string& path,
 		"Content-Length: %lld\r\n"
 		"Connection: close\r\n"
 		"\r\n",
-		path.c_str(), host.c_str(), port, contentType.c_str(), contentLength);
+		path.c_str(), host.c_str(), port, contentType.c_str(),
+		contentLength);
 	return std::string(head);
 }
 
 } // namespace
+
+
+SocketHttpClient::SocketHttpClient()
+	:
+	fSslCtx(nullptr)
+{
+}
+
+
+SocketHttpClient::~SocketHttpClient()
+{
+	if (fSslCtx)
+		SSL_CTX_free(static_cast<SSL_CTX*>(fSslCtx));
+}
+
+
+void
+SocketHttpClient::EnableTls()
+{
+	if (fSslCtx)
+		return;
+	SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+	if (!ctx) {
+		fprintf(stderr, "TLS client: creazione SSL_CTX fallita\n");
+		return;
+	}
+	// Accetta certificati self-signed (come da protocollo LocalSend).
+	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+	fSslCtx = ctx;
+}
 
 
 HttpResponse
@@ -198,11 +250,60 @@ SocketHttpClient::Post(const std::string& host, int port,
 	if (fd < 0)
 		return fail;
 
+	SSL* ssl = nullptr;
+	ReadFn readFn;
+	WriteFn writeFn;
+
+	if (fSslCtx) {
+		ssl = SSL_new(static_cast<SSL_CTX*>(fSslCtx));
+		SSL_set_fd(ssl, fd);
+		if (SSL_connect(ssl) <= 0) {
+			SSL_free(ssl);
+			close(fd);
+			return fail;
+		}
+		readFn = [ssl](char* buf, size_t len) -> ssize_t {
+			return static_cast<ssize_t>(
+				SSL_read(ssl, buf, static_cast<int>(len)));
+		};
+		writeFn = [ssl](const char* data, size_t len) -> bool {
+			size_t sent = 0;
+			while (sent < len) {
+				int chunk = static_cast<int>(
+					len - sent > 16384 ? 16384 : len - sent);
+				int n = SSL_write(ssl, data + sent, chunk);
+				if (n <= 0)
+					return false;
+				sent += static_cast<size_t>(n);
+			}
+			return true;
+		};
+	} else {
+		readFn = [fd](char* buf, size_t len) -> ssize_t {
+			return recv(fd, buf, len, 0);
+		};
+		writeFn = [fd](const char* data, size_t len) -> bool {
+			size_t sent = 0;
+			while (sent < len) {
+				ssize_t n = send(fd, data + sent, len - sent, 0);
+				if (n <= 0)
+					return false;
+				sent += static_cast<size_t>(n);
+			}
+			return true;
+		};
+	}
+
 	std::string head = BuildHead(host, port, path, contentType,
 		static_cast<long long>(body.size()));
-	bool okHead = SendAll(fd, head.data(), head.size());
-	bool okBody = okHead && SendAll(fd, body.data(), body.size());
-	HttpResponse resp = okBody ? ReadResponse(fd) : fail;
+	bool okHead = writeFn(head.data(), head.size());
+	bool okBody = okHead && writeFn(body.data(), body.size());
+	HttpResponse resp = okBody ? ReadResponse(readFn) : fail;
+
+	if (ssl) {
+		SSL_shutdown(ssl);
+		SSL_free(ssl);
+	}
 	close(fd);
 	return resp;
 }
@@ -232,8 +333,57 @@ SocketHttpClient::PostFile(const std::string& host, int port,
 		return fail;
 	}
 
+	SSL* ssl = nullptr;
+	ReadFn readFn;
+	WriteFn writeFn;
+
+	if (fSslCtx) {
+		ssl = SSL_new(static_cast<SSL_CTX*>(fSslCtx));
+		SSL_set_fd(ssl, fd);
+		if (SSL_connect(ssl) <= 0) {
+			SSL_free(ssl);
+			close(fd);
+			fclose(f);
+			return fail;
+		}
+		readFn = [ssl](char* buf, size_t len) -> ssize_t {
+			return static_cast<ssize_t>(
+				SSL_read(ssl, buf, static_cast<int>(len)));
+		};
+		writeFn = [ssl](const char* data, size_t len) -> bool {
+			size_t sent = 0;
+			while (sent < len) {
+				int chunk = static_cast<int>(
+					len - sent > 16384 ? 16384 : len - sent);
+				int n = SSL_write(ssl, data + sent, chunk);
+				if (n <= 0)
+					return false;
+				sent += static_cast<size_t>(n);
+			}
+			return true;
+		};
+	} else {
+		readFn = [fd](char* buf, size_t len) -> ssize_t {
+			return recv(fd, buf, len, 0);
+		};
+		writeFn = [fd](const char* data, size_t len) -> bool {
+			size_t sent = 0;
+			while (sent < len) {
+				ssize_t n = send(fd, data + sent, len - sent, 0);
+				if (n <= 0)
+					return false;
+				sent += static_cast<size_t>(n);
+			}
+			return true;
+		};
+	}
+
 	std::string head = BuildHead(host, port, path, contentType, size);
-	if (!SendAll(fd, head.data(), head.size())) {
+	if (!writeFn(head.data(), head.size())) {
+		if (ssl) {
+			SSL_shutdown(ssl);
+			SSL_free(ssl);
+		}
 		close(fd);
 		fclose(f);
 		return fail;
@@ -243,14 +393,18 @@ SocketHttpClient::PostFile(const std::string& host, int port,
 	bool ok = true;
 	size_t n;
 	while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
-		if (!SendAll(fd, buf, n)) {
+		if (!writeFn(buf, n)) {
 			ok = false;
 			break;
 		}
 	}
 	fclose(f);
 
-	HttpResponse resp = ok ? ReadResponse(fd) : fail;
+	HttpResponse resp = ok ? ReadResponse(readFn) : fail;
+	if (ssl) {
+		SSL_shutdown(ssl);
+		SSL_free(ssl);
+	}
 	close(fd);
 	return resp;
 }
