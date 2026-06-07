@@ -13,6 +13,7 @@ constexpr const char* kApiPrepareUpload	= "/api/localsend/v2/prepare-upload";
 constexpr const char* kApiUpload		= "/api/localsend/v2/upload";
 constexpr const char* kApiCancel		= "/api/localsend/v2/cancel";
 constexpr const char* kApiRegister		= "/api/localsend/v2/register";
+constexpr const char* kApiInfo			= "/api/localsend/v2/info";
 
 } // namespace LocalSend
 
