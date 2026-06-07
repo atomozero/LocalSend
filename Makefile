@@ -33,12 +33,27 @@ RECV_SRC = $(PROTO) \
 
 SSL_LIBS = -lssl -lcrypto
 
+# GUI (L4: applicazione nativa Haiku).
+GUI_SRC = $(PROTO) \
+	src/net/HttpServerSupport.cpp \
+	src/net/MulticastAnnouncer.cpp \
+	src/net/TlsContext.cpp \
+	src/net/haiku/SocketHttpClient.cpp \
+	src/net/haiku/SocketHttpServer.cpp \
+	src/client/FileSource.cpp \
+	src/client/UploadSession.cpp \
+	src/server/FileSink.cpp \
+	src/server/ReceiveSession.cpp \
+	src/app/main_gui.cpp
+
 SEND_OBJ = $(SEND_SRC:.cpp=.o)
 RECV_OBJ = $(RECV_SRC:.cpp=.o)
+GUI_OBJ  = $(GUI_SRC:.cpp=.o)
 SEND_BIN = localsend-send
 RECV_BIN = localsend-receive
+GUI_BIN  = LocalSend
 
-all: $(SEND_BIN) $(RECV_BIN)
+all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN)
 
 $(SEND_BIN): $(SEND_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS) $(SSL_LIBS)
@@ -46,11 +61,14 @@ $(SEND_BIN): $(SEND_OBJ)
 $(RECV_BIN): $(RECV_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe
 
+$(GUI_BIN): $(GUI_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe -ltracker
+
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(SEND_OBJ) $(RECV_OBJ) $(SEND_BIN) $(RECV_BIN) test-receive-bin
+	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) test-receive-bin
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
 # socket, compilabile e runnabile ovunque (non solo Haiku). Niente -lnetwork.
