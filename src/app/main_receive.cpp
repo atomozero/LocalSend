@@ -1,13 +1,13 @@
-// localsend-receive: ricevente L1. Alza un server HTTP e riceve file da una
-// istanza LocalSend (es. telefono) che fa da mittente. Niente scoperta
-// automatica (e' L2): il mittente raggiunge questa macchina per IP.
+// localsend-receive: ricevente con scoperta automatica (L2). Alza un server
+// HTTP, riceve file, e si annuncia in LAN via multicast UDP cosi' che le app
+// LocalSend (telefono, desktop) vedano questa macchina automaticamente.
 //
 //   localsend-receive [--dir CARTELLA] [--port PORTA] [--alias NOME]
 //
 // Esempio:
 //   localsend-receive --dir ./ricevuti
 //
-// I file accettati vengono scritti in CARTELLA (default ./ricevuti). In L1
+// I file accettati vengono scritti in CARTELLA (default ./ricevuti). In L1/L2
 // l'accettazione e' automatica; conferma interattiva e PIN arriveranno con L3.
 
 #include <signal.h>
@@ -16,6 +16,8 @@
 #include <cstdlib>
 #include <string>
 
+#include "net/MulticastAnnouncer.h"
+#include "net/TlsContext.h"
 #include "net/haiku/SocketHttpServer.h"
 #include "protocol/Constants.h"
 #include "protocol/Fingerprint.h"
@@ -76,11 +78,19 @@ main(int argc, char** argv)
 		}
 	}
 
-	// Identita' del device (per ora solo a scopo di log; usata davvero da L2).
+	// Certificato TLS self-signed (HTTPS richiesto dai client moderni).
+	TlsIdentity tls = CreateSelfSignedTls("localsend");
+	if (!tls.ctx) {
+		fprintf(stderr, "impossibile creare il certificato TLS\n");
+		return 1;
+	}
+
+	// Identita' del device: fingerprint = SHA-256 del certificato DER.
 	DeviceInfo info;
 	info.alias = alias;
 	info.port = port;
-	info.fingerprint = LoadOrCreateFingerprint("./localsend_fingerprint");
+	info.fingerprint = tls.fingerprint;
+	info.protocol = "https";
 
 	FileSink sink(destDir);
 	std::string err;
@@ -166,19 +176,47 @@ main(int argc, char** argv)
 		return HttpServerResponse::Empty(200);
 	});
 
+	// 4) register (L2): un dispositivo ci contatta via HTTP per registrarsi.
+	//    Rispondiamo con il nostro DeviceInfo.
+	server.Route("POST", kApiRegister, [&](const HttpRequest&) {
+		return HttpServerResponse::Json(200, info.ToJson().Dump());
+	});
+
+	// 5) info: GET per ottenere il DeviceInfo (v1 e v2).
+	auto infoHandler = [&](const HttpRequest&) {
+		return HttpServerResponse::Json(200, info.ToJson().Dump());
+	};
+	server.Route("GET", kApiInfo, infoHandler);
+	server.Route("GET", "/api/localsend/v1/info", infoHandler);
+
+	server.EnableTls(tls.ctx);
+
 	if (!server.Start(port)) {
 		fprintf(stderr, "impossibile aprire la porta %d (occupata?)\n", port);
 		return 1;
 	}
 
+	// Avvia l'annuncio multicast (L2): gli altri dispositivi in LAN ci
+	// vedranno automaticamente.
+	MulticastAnnouncer announcer(info);
+	bool multicastOk = announcer.Start();
+
 	printf("Ricevente: %s (fp %.8s...)\n", info.alias.c_str(),
 		info.fingerprint.c_str());
 	printf("In ascolto su 0.0.0.0:%d  ->  cartella %s\n", port,
 		sink.Dir().c_str());
+	if (multicastOk)
+		printf("Scoperta LAN attiva (multicast %s:%d)\n",
+			kMulticastGroup, kDefaultPort);
+	else
+		fprintf(stderr, "avviso: multicast non disponibile; "
+			"raggiungibile solo per IP\n");
 	printf("Premi Ctrl-C per uscire.\n");
 
 	server.Run();
 
+	announcer.Stop();
+	FreeTlsIdentity(tls);
 	printf("\nServer fermato.\n");
 	return 0;
 }

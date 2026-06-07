@@ -1,7 +1,8 @@
-// Server HTTP/1.1 su socket BSD, realizza IHttpServer. Portabile e garantito
-// su Haiku (-lnetwork). Monothread: serve una connessione alla volta, che basta
-// al protocollo LocalSend (una sessione per volta) in L1. In L3 arriva
-// una variante TLS; la concorrenza e' un raffinamento successivo.
+// Server HTTP/1.1 su socket BSD con supporto TLS opzionale, realizza
+// IHttpServer. Portabile e garantito su Haiku (-lnetwork). Monothread: serve
+// una connessione alla volta, che basta al protocollo LocalSend (una sessione
+// per volta). In L3 viene usato con TLS self-signed per soddisfare i client
+// che richiedono HTTPS.
 #ifndef _LOCALSEND_SOCKET_HTTP_SERVER_H
 #define _LOCALSEND_SOCKET_HTTP_SERVER_H
 
@@ -17,6 +18,10 @@ public:
 	SocketHttpServer() {}
 	virtual ~SocketHttpServer();
 
+	// Abilita TLS. Va chiamato prima di Start(). ctx e' un SSL_CTX* (passato
+	// come void* per evitare l'include di OpenSSL nell'header).
+	void EnableTls(void* sslCtx);
+
 	void Route(const std::string& method, const std::string& path,
 		Handler handler) override;
 	bool Start(int port) override;
@@ -28,6 +33,7 @@ private:
 
 	int fListenFd = -1;
 	bool fRunning = false;
+	void* fSslCtx = nullptr;
 	std::map<std::string, Handler> fRoutes; // chiave: "METODO PATH"
 };
 

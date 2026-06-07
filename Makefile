@@ -21,13 +21,17 @@ SEND_SRC = $(PROTO) \
 	src/client/UploadSession.cpp \
 	src/app/main_send.cpp
 
-# Ricevente (L1).
+# Ricevente (L1 + L2 scoperta + L3 HTTPS).
 RECV_SRC = $(PROTO) \
 	src/net/HttpServerSupport.cpp \
+	src/net/MulticastAnnouncer.cpp \
+	src/net/TlsContext.cpp \
 	src/net/haiku/SocketHttpServer.cpp \
 	src/server/FileSink.cpp \
 	src/server/ReceiveSession.cpp \
 	src/app/main_receive.cpp
+
+RECV_LIBS = $(LDLIBS) -lssl -lcrypto
 
 SEND_OBJ = $(SEND_SRC:.cpp=.o)
 RECV_OBJ = $(RECV_SRC:.cpp=.o)
@@ -40,7 +44,7 @@ $(SEND_BIN): $(SEND_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS)
 
 $(RECV_BIN): $(RECV_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(RECV_LIBS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
