@@ -4,6 +4,8 @@ Native Haiku client for the LocalSend v2.1 protocol: share files over LAN with
 any device (Android, iOS, Windows, macOS, Linux) running LocalSend, without
 internet and without third-party servers.
 
+![LocalSend on Haiku](screenshots/LocalSend_V0.1.png)
+
 ## Features
 
 - **GUI application** (`LocalSend`) with device discovery, file sending,
