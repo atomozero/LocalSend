@@ -3,6 +3,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <File.h>
+#include <NodeInfo.h>
+
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -86,7 +89,8 @@ FileSink::UniquePath(const std::string& name) const
 
 bool
 FileSink::Save(const std::string& fileName, const std::string& bytes,
-	std::string* outPath, std::string* err) const
+	const std::string& mimeType, std::string* outPath,
+	std::string* err) const
 {
 	if (!EnsureDir(err))
 		return false;
@@ -119,6 +123,17 @@ FileSink::Save(const std::string& fileName, const std::string& bytes,
 				+ std::strerror(errno);
 		return false;
 	}
+
+	// Imposta il tipo MIME come attributo BFS (Tracker mostra l'icona
+	// corretta e apre il file con l'app giusta).
+	if (!mimeType.empty()) {
+		BFile file(finalPath.c_str(), B_READ_WRITE);
+		if (file.InitCheck() == B_OK) {
+			BNodeInfo nodeInfo(&file);
+			nodeInfo.SetType(mimeType.c_str());
+		}
+	}
+
 	if (outPath)
 		*outPath = finalPath;
 	return true;

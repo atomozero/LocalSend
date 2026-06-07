@@ -20,8 +20,10 @@ public:
 	bool EnsureDir(std::string* err = nullptr) const;
 
 	// Salva 'bytes' come 'fileName' (sanificato) in destDir. Scrive su .part
-	// e rinomina. In outPath il percorso finale. false su errore.
+	// e rinomina. Imposta il tipo MIME come attributo BFS se non vuoto.
+	// In outPath il percorso finale. false su errore.
 	bool Save(const std::string& fileName, const std::string& bytes,
+		const std::string& mimeType = "",
 		std::string* outPath = nullptr, std::string* err = nullptr) const;
 
 	// Nome-file sicuro: solo il basename, mai vuoto/"."/"..".

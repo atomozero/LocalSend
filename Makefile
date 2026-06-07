@@ -44,7 +44,7 @@ $(SEND_BIN): $(SEND_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS) $(SSL_LIBS)
 
 $(RECV_BIN): $(RECV_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS) $(SSL_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@

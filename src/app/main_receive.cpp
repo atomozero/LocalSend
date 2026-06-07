@@ -205,9 +205,10 @@ main(int argc, char** argv)
 
 		const FileMetadata* meta = session.File(fileId);
 		std::string name = meta ? meta->fileName : fileId;
+		std::string mimeType = meta ? meta->fileType : "";
 
 		std::string outPath, werr;
-		if (!sink.Save(name, req.body, &outPath, &werr)) {
+		if (!sink.Save(name, req.body, mimeType, &outPath, &werr)) {
 			fprintf(stderr, "scrittura fallita (%s): %s\n", name.c_str(),
 				werr.c_str());
 			return HttpServerResponse::Empty(500);
