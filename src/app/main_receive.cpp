@@ -1,19 +1,22 @@
-// localsend-receive: ricevente con scoperta automatica (L2). Alza un server
-// HTTP, riceve file, e si annuncia in LAN via multicast UDP cosi' che le app
-// LocalSend (telefono, desktop) vedano questa macchina automaticamente.
+// localsend-receive: ricevente LocalSend con HTTPS, scoperta automatica e
+// conferma interattiva (L3). Alza un server HTTPS, si annuncia in LAN via
+// multicast UDP, e chiede conferma all'utente prima di accettare i file.
 //
 //   localsend-receive [--dir CARTELLA] [--port PORTA] [--alias NOME]
+//                     [--pin PIN] [--auto]
+//
+// Opzioni:
+//   --pin PIN     Richiede questo PIN al mittente (401 se errato/assente)
+//   --auto        Accetta automaticamente senza chiedere conferma
 //
 // Esempio:
-//   localsend-receive --dir ./ricevuti
-//
-// I file accettati vengono scritti in CARTELLA (default ./ricevuti). In L1/L2
-// l'accettazione e' automatica; conferma interattiva e PIN arriveranno con L3.
+//   localsend-receive --dir ./ricevuti --pin 1234
 
 #include <signal.h>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include "net/MulticastAnnouncer.h"
@@ -42,8 +45,32 @@ OnSignal(int)
 void
 Usage(const char* argv0)
 {
-	fprintf(stderr, "uso: %s [--dir CARTELLA] [--port PORTA] [--alias NOME]\n",
+	fprintf(stderr,
+		"uso: %s [--dir CARTELLA] [--port PORTA] [--alias NOME] "
+		"[--pin PIN] [--auto]\n",
 		argv0);
+}
+
+
+// Chiede conferma all'utente su stdin. Ritorna true se accetta.
+bool
+AskConfirmation(const IncomingPrepareUpload& in)
+{
+	printf("\nRichiesta da \"%s\" (%s): %zu file\n",
+		in.sender.alias.c_str(), in.sender.deviceType.c_str(),
+		in.files.size());
+	for (const auto& f : in.files) {
+		printf("  - %s (%lld byte, %s)\n", f.fileName.c_str(), f.size,
+			f.fileType.c_str());
+	}
+	printf("Accettare? [s/n] ");
+	fflush(stdout);
+
+	char buf[16] = {};
+	if (!fgets(buf, sizeof(buf), stdin))
+		return false;
+	return buf[0] == 's' || buf[0] == 'S'
+		|| buf[0] == 'y' || buf[0] == 'Y';
 }
 
 } // namespace
@@ -63,6 +90,8 @@ main(int argc, char** argv)
 	std::string destDir = "./ricevuti";
 	int port = kDefaultPort;
 	std::string alias = "Haiku Box";
+	std::string requiredPin;
+	bool autoAccept = false;
 
 	for (int i = 1; i < argc; ++i) {
 		std::string a = argv[i];
@@ -72,6 +101,10 @@ main(int argc, char** argv)
 			port = atoi(argv[++i]);
 		} else if (a == "--alias" && i + 1 < argc) {
 			alias = argv[++i];
+		} else if (a == "--pin" && i + 1 < argc) {
+			requiredPin = argv[++i];
+		} else if (a == "--auto") {
+			autoAccept = true;
 		} else {
 			Usage(argv[0]);
 			return 2;
@@ -104,8 +137,21 @@ main(int argc, char** argv)
 	SocketHttpServer server;
 	gServer = &server;
 
-	// 1) prepare-upload: leggi metadati, accetta, genera sessionId + token.
-	server.Route("POST", kApiPrepareUpload, [&](const HttpRequest& req) {
+	// 1) prepare-upload: verifica PIN, chiedi conferma, genera sessionId+token.
+	server.Route("POST", kApiPrepareUpload,
+		[&](const HttpRequest& req) {
+		// Verifica PIN se richiesto.
+		if (!requiredPin.empty()) {
+			std::string pin = req.Query("pin");
+			if (pin != requiredPin) {
+				fprintf(stderr, "PIN errato da %s (ricevuto: \"%s\")\n",
+					req.headers.count("host")
+						? req.headers.at("host").c_str() : "?",
+					pin.c_str());
+				return HttpServerResponse::Empty(401);
+			}
+		}
+
 		IncomingPrepareUpload in;
 		try {
 			in = ParsePrepareUploadRequest(req.body);
@@ -114,7 +160,23 @@ main(int argc, char** argv)
 			return HttpServerResponse::Empty(400);
 		}
 
-		PrepareOutcome out = session.Prepare(in); // accetta tutto in L1
+		// Conferma interattiva (a meno di --auto).
+		if (!autoAccept) {
+			if (!AskConfirmation(in)) {
+				printf("Rifiutato.\n");
+				return HttpServerResponse::Empty(403);
+			}
+		} else {
+			printf("\nRichiesta da \"%s\" (%s): %zu file\n",
+				in.sender.alias.c_str(), in.sender.deviceType.c_str(),
+				in.files.size());
+			for (const auto& f : in.files) {
+				printf("  - %s (%lld byte, %s)\n", f.fileName.c_str(),
+					f.size, f.fileType.c_str());
+			}
+		}
+
+		PrepareOutcome out = session.Prepare(in);
 		switch (out.status) {
 			case PrepareStatus::SessionBusy:
 				return HttpServerResponse::Empty(409);
@@ -124,13 +186,6 @@ main(int argc, char** argv)
 				break;
 		}
 
-		printf("\nRichiesta da \"%s\" (%s): %zu file\n",
-			in.sender.alias.c_str(), in.sender.deviceType.c_str(),
-			in.files.size());
-		for (const auto& f : in.files) {
-			printf("  - %s (%lld byte, %s)\n", f.fileName.c_str(), f.size,
-				f.fileType.c_str());
-		}
 		printf("Sessione %s avviata; in attesa degli upload...\n",
 			out.result.sessionId.c_str());
 
@@ -177,7 +232,6 @@ main(int argc, char** argv)
 	});
 
 	// 4) register (L2): un dispositivo ci contatta via HTTP per registrarsi.
-	//    Rispondiamo con il nostro DeviceInfo.
 	server.Route("POST", kApiRegister, [&](const HttpRequest&) {
 		return HttpServerResponse::Json(200, info.ToJson().Dump());
 	});
@@ -196,8 +250,7 @@ main(int argc, char** argv)
 		return 1;
 	}
 
-	// Avvia l'annuncio multicast (L2): gli altri dispositivi in LAN ci
-	// vedranno automaticamente.
+	// Avvia l'annuncio multicast (L2).
 	MulticastAnnouncer announcer(info);
 	bool multicastOk = announcer.Start();
 
@@ -205,6 +258,10 @@ main(int argc, char** argv)
 		info.fingerprint.c_str());
 	printf("In ascolto su 0.0.0.0:%d  ->  cartella %s\n", port,
 		sink.Dir().c_str());
+	if (!requiredPin.empty())
+		printf("PIN richiesto: %s\n", requiredPin.c_str());
+	if (autoAccept)
+		printf("Accettazione automatica attiva\n");
 	if (multicastOk)
 		printf("Scoperta LAN attiva (multicast %s:%d)\n",
 			kMulticastGroup, kDefaultPort);
