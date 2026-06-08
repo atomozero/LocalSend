@@ -78,7 +78,8 @@ enum {
 	kMsgSendText		= 'STXT',
 	kMsgTextReady		= 'TXRD',
 	kMsgTextReceived	= 'TXRC',
-	kMsgToggleFavorite	= 'TFAV'
+	kMsgToggleFavorite	= 'TFAV',
+	kMsgPendingFiles	= 'PEND'
 };
 
 
@@ -973,9 +974,11 @@ public:
 	void AddDevice(const DiscoveredDevice& dev);
 	void HandleIncoming(IncomingRequest* req);
 	void SetStatus(const char* text);
+	void AddPendingFiles(const std::vector<std::string>& paths);
 
 private:
 	void SendToSelected();
+	void SendPendingOrBrowse();
 	void SendText(const std::string& host, int port,
 		const std::string& text);
 	void SendFiles(const std::string& host, int port,
@@ -1004,6 +1007,9 @@ private:
 	Favorites fFavorites;
 	std::string fLastSenderAlias;
 	std::string fLastSenderFingerprint;
+
+	// File in attesa (da argomento CLI o drag&drop prima della selezione).
+	std::vector<std::string> fPendingPaths;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -1651,6 +1657,24 @@ MainWindow::SendToSelected()
 		return;
 	}
 
+	// Se ci sono file pendenti (da CLI o drag&drop), inviali subito.
+	if (!fPendingPaths.empty()) {
+		std::lock_guard<std::mutex> lock(fDevicesMtx);
+		if (sel >= 0 && sel < (int32)fDevices.size()) {
+			auto& dev = fDevices[sel];
+			SendFiles(dev.host, dev.port, fPendingPaths);
+			fPendingPaths.clear();
+			return;
+		}
+	}
+
+	SendPendingOrBrowse();
+}
+
+
+void
+MainWindow::SendPendingOrBrowse()
+{
 	if (!fFilePanel) {
 		fFilePanel = new BFilePanel(B_OPEN_PANEL, new BMessenger(this),
 			NULL, B_FILE_NODE, true, new BMessage(kMsgFileSelected));
@@ -1658,6 +1682,23 @@ MainWindow::SendToSelected()
 		fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
 	}
 	fFilePanel->Show();
+}
+
+
+void
+MainWindow::AddPendingFiles(const std::vector<std::string>& paths)
+{
+	for (const auto& p : paths)
+		fPendingPaths.push_back(p);
+
+	// Aggiorna lo stato per mostrare che ci sono file pronti.
+	BString status;
+	status << fPendingPaths.size();
+	if (fPendingPaths.size() == 1)
+		status << " file ready";
+	else
+		status << " files ready";
+	fHeader->SetStatus(status.String(), true, false);
 }
 
 
@@ -1789,6 +1830,8 @@ public:
 	LocalSendApp();
 	virtual ~LocalSendApp();
 	virtual void ReadyToRun();
+	virtual void ArgvReceived(int32 argc, char** argv);
+	virtual void RefsReceived(BMessage* msg);
 
 private:
 	void StartDiscoveryListener();
@@ -1850,6 +1893,44 @@ LocalSendApp::ReadyToRun()
 	fAnnouncer->Start();
 
 	StartDiscoveryListener();
+}
+
+
+void
+LocalSendApp::ArgvReceived(int32 argc, char** argv)
+{
+	std::vector<std::string> paths;
+	for (int32 i = 1; i < argc; i++) {
+		// Ignora le opzioni (iniziano con --).
+		if (argv[i][0] == '-' && argv[i][1] == '-')
+			continue;
+		paths.push_back(argv[i]);
+	}
+	if (!paths.empty() && fWindow) {
+		if (fWindow->LockLooper()) {
+			fWindow->AddPendingFiles(paths);
+			fWindow->UnlockLooper();
+		}
+	}
+}
+
+
+void
+LocalSendApp::RefsReceived(BMessage* msg)
+{
+	std::vector<std::string> paths;
+	entry_ref ref;
+	for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++) {
+		BPath path(&ref);
+		if (path.InitCheck() == B_OK)
+			paths.push_back(path.Path());
+	}
+	if (!paths.empty() && fWindow) {
+		if (fWindow->LockLooper()) {
+			fWindow->AddPendingFiles(paths);
+			fWindow->UnlockLooper();
+		}
+	}
 }
 
 
