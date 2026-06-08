@@ -71,7 +71,9 @@ enum {
 	kMsgShowSettings	= 'SETT',
 	kMsgSettingsSave	= 'SSAV',
 	kMsgBrowseDir		= 'BRWD',
-	kMsgDirSelected		= 'DSEL'
+	kMsgDirSelected		= 'DSEL',
+	kMsgShowHistory		= 'HIST',
+	kMsgClearHistory	= 'HCLR'
 };
 
 
@@ -155,6 +157,94 @@ struct AppSettings {
 };
 
 static const char* kSettingsFile = "./localsend_settings";
+static const char* kHistoryFile = "./localsend_history";
+static const int kMaxHistoryEntries = 30;
+
+
+// --- Cronologia trasferimenti ----------------------------------------------
+
+struct HistoryEntry {
+	bool sent;            // true = inviato, false = ricevuto
+	std::string fileName;
+	std::string peer;     // alias del dispositivo
+	std::string date;     // YYYY-MM-DD HH:MM
+	long long size;
+};
+
+struct TransferHistory {
+	std::vector<HistoryEntry> entries;
+
+	void Add(bool sent, const std::string& fileName,
+		const std::string& peer, long long size)
+	{
+		HistoryEntry e;
+		e.sent = sent;
+		e.fileName = fileName;
+		e.peer = peer;
+		e.size = size;
+		// Data/ora corrente.
+		time_t now = time(nullptr);
+		struct tm* t = localtime(&now);
+		char buf[32];
+		snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
+			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+			t->tm_hour, t->tm_min);
+		e.date = buf;
+		entries.push_back(e);
+		if ((int)entries.size() > kMaxHistoryEntries)
+			entries.erase(entries.begin());
+		Save();
+	}
+
+	void Clear()
+	{
+		entries.clear();
+		remove(kHistoryFile);
+	}
+
+	void Load()
+	{
+		FILE* f = fopen(kHistoryFile, "r");
+		if (!f)
+			return;
+		char line[1024];
+		while (fgets(line, sizeof(line), f)) {
+			std::string l(line);
+			while (!l.empty() && (l.back() == '\n' || l.back() == '\r'))
+				l.pop_back();
+			// Formato: S|R<TAB>date<TAB>peer<TAB>size<TAB>fileName
+			HistoryEntry e;
+			size_t p1 = l.find('\t');
+			if (p1 == std::string::npos) continue;
+			e.sent = (l[0] == 'S');
+			size_t p2 = l.find('\t', p1 + 1);
+			if (p2 == std::string::npos) continue;
+			e.date = l.substr(p1 + 1, p2 - p1 - 1);
+			size_t p3 = l.find('\t', p2 + 1);
+			if (p3 == std::string::npos) continue;
+			e.peer = l.substr(p2 + 1, p3 - p2 - 1);
+			size_t p4 = l.find('\t', p3 + 1);
+			if (p4 == std::string::npos) continue;
+			e.size = atoll(l.c_str() + p3 + 1);
+			e.fileName = l.substr(p4 + 1);
+			entries.push_back(e);
+		}
+		fclose(f);
+	}
+
+	void Save() const
+	{
+		FILE* f = fopen(kHistoryFile, "w");
+		if (!f)
+			return;
+		for (const auto& e : entries) {
+			fprintf(f, "%c\t%s\t%s\t%lld\t%s\n",
+				e.sent ? 'S' : 'R', e.date.c_str(),
+				e.peer.c_str(), e.size, e.fileName.c_str());
+		}
+		fclose(f);
+	}
+};
 
 
 // --- Dispositivo scoperto in LAN -------------------------------------------
@@ -389,6 +479,151 @@ private:
 };
 
 
+// --- HistoryListItem -------------------------------------------------------
+
+class HistoryListItem : public BListItem {
+public:
+	HistoryListItem(const HistoryEntry& entry)
+		:
+		BListItem(),
+		fSent(entry.sent),
+		fFileName(entry.fileName.c_str()),
+		fPeer(entry.peer.c_str()),
+		fDate(entry.date.c_str()),
+		fSize(entry.size)
+	{
+	}
+
+	virtual void DrawItem(BView* owner, BRect frame, bool)
+	{
+		rgb_color bg = IsSelected()
+			? ui_color(B_LIST_SELECTED_BACKGROUND_COLOR)
+			: ui_color(B_LIST_BACKGROUND_COLOR);
+		owner->SetHighColor(bg);
+		owner->FillRect(frame);
+
+		// Freccia colorata.
+		float x = frame.left + 8;
+		rgb_color arrow = fSent
+			? (rgb_color){60, 160, 240, 255}
+			: (rgb_color){80, 200, 100, 255};
+		owner->SetHighColor(arrow);
+		BFont arrowFont(be_bold_font);
+		arrowFont.SetSize(14);
+		owner->SetFont(&arrowFont);
+		owner->DrawString(fSent ? "\xe2\x86\x91" : "\xe2\x86\x93",
+			BPoint(x, frame.top + 18));
+
+		float textX = x + 20;
+
+		// Nome file (grassetto).
+		rgb_color textColor = IsSelected()
+			? ui_color(B_LIST_SELECTED_ITEM_TEXT_COLOR)
+			: ui_color(B_LIST_ITEM_TEXT_COLOR);
+		owner->SetHighColor(textColor);
+		BFont nameFont(be_bold_font);
+		nameFont.SetSize(be_plain_font->Size());
+		owner->SetFont(&nameFont);
+		font_height fh;
+		nameFont.GetHeight(&fh);
+		owner->DrawString(fFileName.String(),
+			BPoint(textX, frame.top + 4 + fh.ascent));
+
+		// Dettagli: peer, dimensione, data.
+		BFont detailFont(be_plain_font);
+		detailFont.SetSize(be_plain_font->Size() - 1);
+		owner->SetFont(&detailFont);
+		rgb_color detailColor = IsSelected()
+			? ui_color(B_LIST_SELECTED_ITEM_TEXT_COLOR)
+			: tint_color(ui_color(B_LIST_ITEM_TEXT_COLOR), 0.7);
+		owner->SetHighColor(detailColor);
+
+		BString detail;
+		detail << fPeer << " \xe2\x80\xa2 ";
+		if (fSize >= 1024 * 1024)
+			detail << (int)(fSize / (1024 * 1024)) << " MB";
+		else
+			detail << (int)(fSize / 1024) << " KB";
+		detail << " \xe2\x80\xa2 " << fDate;
+
+		detailFont.GetHeight(&fh);
+		owner->DrawString(detail.String(),
+			BPoint(textX, frame.bottom - 4 - fh.descent));
+	}
+
+	virtual void Update(BView* owner, const BFont*)
+	{
+		SetHeight(40);
+		SetWidth(owner->Bounds().Width());
+	}
+
+private:
+	bool fSent;
+	BString fFileName;
+	BString fPeer;
+	BString fDate;
+	long long fSize;
+};
+
+
+// --- HistoryWindow ---------------------------------------------------------
+
+class HistoryWindow : public BWindow {
+public:
+	HistoryWindow(TransferHistory* history, BWindow* parent)
+		:
+		BWindow(BRect(120, 120, 530, 430), Tr(S_HISTORY),
+			B_TITLED_WINDOW,
+			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
+				| B_CLOSE_ON_ESCAPE),
+		fHistory(history)
+	{
+		fList = new BListView("history");
+		BScrollView* scroll = new BScrollView("hscroll", fList,
+			0, false, true, B_NO_BORDER);
+
+		BButton* clearBtn = new BButton(Tr(S_CLEAR_HISTORY),
+			new BMessage(kMsgClearHistory));
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(scroll, 1.0)
+			.AddGroup(B_HORIZONTAL)
+				.Add(clearBtn)
+				.AddGlue()
+			.End()
+		.End();
+
+		PopulateList();
+		CenterIn(parent->Frame());
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		switch (msg->what) {
+			case kMsgClearHistory:
+				fHistory->Clear();
+				while (fList->CountItems() > 0)
+					delete fList->RemoveItem((int32)0);
+				break;
+			default:
+				BWindow::MessageReceived(msg);
+		}
+	}
+
+private:
+	void PopulateList()
+	{
+		// Mostra dal piu' recente al piu' vecchio.
+		for (int i = (int)fHistory->entries.size() - 1; i >= 0; i--)
+			fList->AddItem(new HistoryListItem(fHistory->entries[i]));
+	}
+
+	TransferHistory* fHistory;
+	BListView* fList;
+};
+
+
 // --- SettingsWindow --------------------------------------------------------
 
 class SettingsWindow : public BWindow {
@@ -591,6 +826,10 @@ private:
 	int fRecvTotal = 0;
 	int fRecvDone = 0;
 
+	// Cronologia.
+	TransferHistory fHistory;
+	std::string fLastSenderAlias;
+
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
 	std::vector<DiscoveredDevice> fDevices;
@@ -609,6 +848,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fSink(settings->destDir)
 {
 	fSink.EnsureDir();
+	fHistory.Load();
 
 	// Header.
 	fHeader = new HeaderView();
@@ -638,8 +878,10 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	// Pulsanti.
 	BButton* sendBtn = new BButton("Invia file\xE2\x80\xA6",
 		new BMessage(kMsgSendFile));
-	BButton* settingsBtn = new BButton("Impostazioni\xE2\x80\xA6",
+	BButton* settingsBtn = new BButton(Tr(S_SETTINGS),
 		new BMessage(kMsgShowSettings));
+	BButton* historyBtn = new BButton(Tr(S_HISTORY),
+		new BMessage(kMsgShowHistory));
 
 	// Layout.
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
@@ -652,6 +894,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.AddStrut(B_USE_HALF_ITEM_SPACING)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(sendBtn, 1.0)
+				.Add(historyBtn, 0.0)
 				.Add(settingsBtn, 0.0)
 			.End()
 		.End()
@@ -739,6 +982,9 @@ MainWindow::StartServer(void* sslCtx)
 				break;
 		}
 
+		// Salva il mittente per la cronologia.
+		fLastSenderAlias = in.sender.alias;
+
 		// Inizializza progresso ricezione.
 		fRecvTotal = static_cast<int>(out.result.fileTokens.size());
 		fRecvDone = 0;
@@ -790,6 +1036,7 @@ MainWindow::StartServer(void* sslCtx)
 		BMessage msg(kMsgFileReceived);
 		msg.AddString("name", name.c_str());
 		msg.AddString("path", outPath.c_str());
+		msg.AddInt64("size", static_cast<int64>(req.body.size()));
 		PostMessage(&msg);
 
 		if (fSession.IsComplete()) {
@@ -933,7 +1180,9 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgFileReceived:
 		{
 			const char* name = nullptr;
+			int64 size = 0;
 			msg->FindString("name", &name);
+			msg->FindInt64("size", &size);
 			if (name) {
 				BString status(Tr(S_RECEIVED_COLON));
 				status << name;
@@ -944,6 +1193,9 @@ MainWindow::MessageReceived(BMessage* msg)
 				notif.SetTitle(Tr(S_FILE_RECEIVED));
 				notif.SetContent(name);
 				notif.Send();
+
+				// Cronologia.
+				fHistory.Add(false, name, fLastSenderAlias, size);
 
 				// Nascondi la barra se la ricezione e' completa.
 				if (fRecvTotal > 0 && fRecvDone >= fRecvTotal
@@ -991,6 +1243,26 @@ MainWindow::MessageReceived(BMessage* msg)
 				fHeader->SetStatus(status);
 			if (!fProgressBar->IsHidden())
 				fProgressBar->Hide();
+
+			// Cronologia: registra ogni file inviato.
+			const char* peer = nullptr;
+			int64 totalSize = 0;
+			msg->FindString("peer", &peer);
+			msg->FindInt64("total_size", &totalSize);
+			const char* sentFile = nullptr;
+			for (int i = 0;
+				msg->FindString("sent_file", i, &sentFile) == B_OK;
+				i++) {
+				fHistory.Add(true, sentFile,
+					peer ? peer : "?", totalSize);
+			}
+			break;
+		}
+
+		case kMsgShowHistory:
+		{
+			HistoryWindow* hw = new HistoryWindow(&fHistory, this);
+			hw->Show();
 			break;
 		}
 
@@ -1097,6 +1369,18 @@ MainWindow::SendFiles(const std::string& host, int port,
 		} else {
 			msg.AddString("status", Tr(S_SEND_FAILED));
 		}
+		// Passa i file inviati per la cronologia.
+		for (const auto& fo : report.files) {
+			if (fo.status == FileOutcome::Status::Sent) {
+				msg.AddString("sent_file", fo.fileName.c_str());
+			}
+		}
+		// Passa il totale dei byte e il peer.
+		long long totalSent = 0;
+		for (const auto& f : files)
+			totalSent += f.size;
+		msg.AddInt64("total_size", totalSent);
+		msg.AddString("peer", host.c_str());
 		PostMessage(&msg);
 	}).detach();
 }
