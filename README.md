@@ -101,6 +101,10 @@ src/
 - Download API: browser visits `http://host:53318` to download shared files
 - Source: official `localsend/protocol` repository
 
+## About
+
+This software may contain traces of peanuts and LLM.
+
 ## Support
 
 If you find this project useful, you can buy me a coffee:
