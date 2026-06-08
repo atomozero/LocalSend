@@ -4,7 +4,7 @@ Native Haiku client for the LocalSend v2.1 protocol: share files and text
 messages over LAN with any device (Android, iOS, Windows, macOS, Linux)
 running LocalSend, without internet and without third-party servers.
 
-![LocalSend on Haiku](screenshots/LocalSend_V0.1.png)
+![LocalSend on Haiku](screenshots/LocalSend_V1.0.png)
 
 ## Features
 
@@ -109,7 +109,7 @@ This software may contain traces of peanuts and LLM.
 
 If you find this project useful, you can buy me a coffee:
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/atomozero)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
 
 ## License
 
