@@ -1547,9 +1547,18 @@ MainWindow::SendText(const std::string& host, int port,
 
 		FileMetadata m;
 		m.id = "text-1";
-		m.fileName = "message.txt";
+		// L'app ufficiale usa il testo stesso come fileName.
+		std::string shortName = text.substr(0,
+			text.size() > 64 ? 64 : text.size());
+		// Rimuovi newline dal nome.
+		for (char& c : shortName) {
+			if (c == '\n' || c == '\r')
+				c = ' ';
+		}
+		m.fileName = shortName;
 		m.size = static_cast<long long>(text.size());
 		m.fileType = "text/plain";
+		m.preview = text;
 		m.localPath = tmpPath;
 
 		std::vector<FileMetadata> files;
