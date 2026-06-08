@@ -82,7 +82,8 @@ enum {
 	kMsgToggleFavorite	= 'TFAV',
 	kMsgPendingFiles	= 'PEND',
 	kMsgShareLink		= 'SLNK',
-	kMsgStopShare		= 'SSHR'
+	kMsgStopShare		= 'SSHR',
+	kMsgAbout			= 'ABOU'
 };
 
 
@@ -1099,6 +1100,8 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 				.Add(new BButton(Tr(S_SHARE_LINK),
 					new BMessage(kMsgShareLink)), 1.0)
 				.Add(settingsBtn, 1.0)
+				.Add(new BButton("?",
+					new BMessage(kMsgAbout)), 0.0)
 			.End()
 		.End()
 	.End();
@@ -1521,6 +1524,23 @@ MainWindow::MessageReceived(BMessage* msg)
 			StopDownloadServer();
 			fHeader->SetStatus(Tr(S_READY), true, false);
 			break;
+
+		case kMsgAbout:
+		{
+			BAlert* alert = new BAlert("About LocalSend",
+				"LocalSend for Haiku v1.0.0\n\n"
+				"Native LocalSend v2.1 client.\n"
+				"Share files over LAN with any device.\n\n"
+				"by atomozero\n"
+				"https://github.com/atomozero/LocalSend\n\n"
+				"This software may contain\n"
+				"traces of peanuts and LLM.\n\n"
+				"MIT License",
+				Tr(S_OK), NULL, NULL,
+				B_WIDTH_AS_USUAL, B_INFO_ALERT);
+			alert->Go();
+			break;
+		}
 
 		case kMsgToggleFavorite:
 		{
