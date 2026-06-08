@@ -72,6 +72,8 @@ $(GUI_BIN): $(GUI_OBJ)
 
 addon: $(ADDON_SRC)
 	$(CXX) $(CXXFLAGS) -fPIC -shared -o "Send with LocalSend" $(ADDON_SRC) -lbe
+	rc -o addon.rsrc LocalSend.rdef
+	xres -o "Send with LocalSend" addon.rsrc
 
 install-addon: addon
 	mkdir -p "/boot/home/config/non-packaged/add-ons/Tracker"
@@ -81,7 +83,7 @@ install-addon: addon
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" test-receive-bin
+	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc test-receive-bin
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
 # socket, compilabile e runnabile ovunque (non solo Haiku). Niente -lnetwork.
