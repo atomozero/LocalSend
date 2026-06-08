@@ -110,10 +110,11 @@ WriteResponse(const WriteFn& writeFn, const HttpServerResponse& r)
 		"HTTP/1.1 %d %s\r\n"
 		"Content-Type: %s\r\n"
 		"Content-Length: %zu\r\n"
+		"%s"
 		"Connection: close\r\n"
 		"\r\n",
 		r.status, ReasonPhrase(r.status), r.contentType.c_str(),
-		r.body.size());
+		r.body.size(), r.extraHeaders.c_str());
 	if (!writeFn(head, std::strlen(head)))
 		return;
 	if (!r.body.empty())

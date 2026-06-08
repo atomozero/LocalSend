@@ -1965,6 +1965,8 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 		HttpServerResponse resp;
 		resp.status = 200;
 		resp.contentType = "application/octet-stream";
+		resp.extraHeaders = "Content-Disposition: attachment; filename=\""
+			+ name + "\"\r\n";
 		resp.body = std::move(body);
 		return resp;
 	});

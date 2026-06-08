@@ -33,14 +33,15 @@ struct HttpServerResponse {
 	int status = 200;
 	std::string contentType = "application/json";
 	std::string body;
+	std::string extraHeaders; // header aggiuntivi (es. Content-Disposition)
 
 	static HttpServerResponse Json(int status, const std::string& body)
 	{
-		return HttpServerResponse{status, "application/json", body};
+		return HttpServerResponse{status, "application/json", body, ""};
 	}
 	static HttpServerResponse Empty(int status)
 	{
-		return HttpServerResponse{status, "text/plain", ""};
+		return HttpServerResponse{status, "text/plain", "", ""};
 	}
 };
 
