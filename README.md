@@ -101,6 +101,12 @@ src/
 - Download API: browser visits `http://host:53318` to download shared files
 - Source: official `localsend/protocol` repository
 
+## Support
+
+If you find this project useful, you can buy me a coffee:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/atomozero)
+
 ## License
 
 MIT. See `LICENSE`.
