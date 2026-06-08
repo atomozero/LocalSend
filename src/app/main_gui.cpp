@@ -1129,19 +1129,28 @@ MainWindow::StartServer(void* sslCtx)
 			PostMessage(&prog);
 		}
 
-		// Se e' un messaggio di testo, mostra in un dialogo.
-		if (mimeType == "text/plain" && req.body.size() < 10240) {
+		bool isTextMsg = (mimeType == "text/plain"
+			&& req.body.size() < 10240);
+
+		if (isTextMsg) {
+			// Messaggio di testo: mostra solo il dialogo, niente
+			// notifica "file ricevuto".
 			BMessage tmsg(kMsgTextReceived);
 			tmsg.AddString("text", req.body.c_str());
 			tmsg.AddString("sender", fLastSenderAlias.c_str());
 			PostMessage(&tmsg);
+		} else {
+			// File normale: notifica standard.
+			BMessage msg(kMsgFileReceived);
+			msg.AddString("name", name.c_str());
+			msg.AddString("path", outPath.c_str());
+			msg.AddInt64("size", static_cast<int64>(req.body.size()));
+			PostMessage(&msg);
 		}
 
-		BMessage msg(kMsgFileReceived);
-		msg.AddString("name", name.c_str());
-		msg.AddString("path", outPath.c_str());
-		msg.AddInt64("size", static_cast<int64>(req.body.size()));
-		PostMessage(&msg);
+		// Cronologia per entrambi.
+		fHistory.Add(false, name, fLastSenderAlias,
+			static_cast<long long>(req.body.size()));
 
 		if (fSession.IsComplete()) {
 			fSession.Reset();
@@ -1312,9 +1321,7 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgFileReceived:
 		{
 			const char* name = nullptr;
-			int64 size = 0;
 			msg->FindString("name", &name);
-			msg->FindInt64("size", &size);
 			if (name) {
 				BString status(Tr(S_RECEIVED_COLON));
 				status << name;
@@ -1325,9 +1332,6 @@ MainWindow::MessageReceived(BMessage* msg)
 				notif.SetTitle(Tr(S_FILE_RECEIVED));
 				notif.SetContent(name);
 				notif.Send();
-
-				// Cronologia.
-				fHistory.Add(false, name, fLastSenderAlias, size);
 
 				// Nascondi la barra se la ricezione e' completa.
 				if (fRecvTotal > 0 && fRecvDone >= fRecvTotal
@@ -1431,9 +1435,11 @@ MainWindow::MessageReceived(BMessage* msg)
 			msg->FindString("sender", &sender);
 			if (text) {
 				BString title(Tr(S_TEXT_RECEIVED));
-				if (sender) {
+				if (sender)
 					title << " - " << sender;
-				}
+
+				fHeader->SetStatus(title.String(), true, false);
+
 				BAlert* alert = new BAlert(title.String(),
 					text, Tr(S_OK), NULL, NULL,
 					B_WIDTH_AS_USUAL, B_INFO_ALERT);
@@ -1445,6 +1451,9 @@ MainWindow::MessageReceived(BMessage* msg)
 				notif.SetTitle(Tr(S_TEXT_RECEIVED));
 				notif.SetContent(text);
 				notif.Send();
+
+				if (!fProgressBar->IsHidden())
+					fProgressBar->Hide();
 			}
 			break;
 		}
