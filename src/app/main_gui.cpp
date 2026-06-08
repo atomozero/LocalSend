@@ -1311,18 +1311,22 @@ MainWindow::StopServer()
 void
 MainWindow::AddDevice(const DiscoveredDevice& dev)
 {
+	// Copia locale per evitare problemi di lifetime con il thread
+	// di discovery.
+	DiscoveredDevice copy = dev;
+
 	std::lock_guard<std::mutex> lock(fDevicesMtx);
 	for (const auto& d : fDevices) {
-		if (d.fingerprint == dev.fingerprint)
+		if (d.fingerprint == copy.fingerprint)
 			return;
 	}
-	fDevices.push_back(dev);
+	fDevices.push_back(copy);
 
 	BMessage msg(kMsgDeviceFound);
-	msg.AddString("alias", dev.alias.c_str());
-	msg.AddString("type", dev.deviceType.c_str());
-	msg.AddString("ip", dev.host.c_str());
-	msg.AddString("fingerprint", dev.fingerprint.c_str());
+	msg.AddString("alias", copy.alias.c_str());
+	msg.AddString("type", copy.deviceType.c_str());
+	msg.AddString("ip", copy.host.c_str());
+	msg.AddString("fingerprint", copy.fingerprint.c_str());
 	PostMessage(&msg);
 }
 
@@ -2170,7 +2174,7 @@ LocalSendApp::StartDiscoveryListener()
 				dev.deviceType = msg.Has("deviceType")
 					? msg.At("deviceType").AsString() : "unknown";
 
-				if (fWindow)
+				if (fWindow && !dev.fingerprint.empty())
 					fWindow->AddDevice(dev);
 			} catch (...) {
 			}
