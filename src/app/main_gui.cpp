@@ -14,6 +14,7 @@
 #include <Button.h>
 #include <Catalog.h>
 #include <CheckBox.h>
+#include <Clipboard.h>
 #include <ControlLook.h>
 #include <FilePanel.h>
 #include <Font.h>
@@ -1983,11 +1984,35 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 	char hostname[256] = {};
 	gethostname(hostname, sizeof(hostname));
 
+	BString url;
+	url << "http://" << hostname << ":" << kDownloadPort;
+
 	BString status;
 	char buf[256];
 	snprintf(buf, sizeof(buf), Tr(S_SHARE_LINK_ACTIVE), kDownloadPort);
-	status << buf << "\nhttp://" << hostname << ":" << kDownloadPort;
+	status << buf;
 	fHeader->SetStatus(status.String(), true, false);
+
+	// Copia il link negli appunti.
+	if (be_clipboard->Lock()) {
+		be_clipboard->Clear();
+		BMessage* clip = be_clipboard->Data();
+		clip->AddData("text/plain", B_MIME_TYPE,
+			url.String(), url.Length());
+		be_clipboard->Commit();
+		be_clipboard->Unlock();
+	}
+
+	// Mostra il link in un dialogo copiabile.
+	BString msg;
+	msg << status << "\n\n" << url
+		<< "\n\n(Link copiato negli appunti)";
+	BAlert* alert = new BAlert("LocalSend",
+		msg.String(), Tr(S_OK), Tr(S_SHARE_LINK_STOP),
+		NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
+	int32 result = alert->Go();
+	if (result == 1)
+		StopDownloadServer();
 }
 
 
