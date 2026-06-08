@@ -390,7 +390,13 @@ public:
 	}
 
 	void SetDeviceName(const char* name) { fDeviceName = name; Invalidate(); }
-	void SetStatus(const char* status) { fStatus = status; Invalidate(); }
+	void SetStatus(const char* status, bool good = false, bool error = false)
+	{
+		fStatus = status;
+		fStatusGood = good;
+		fStatusError = error;
+		Invalidate();
+	}
 	void SetFingerprint(const char* fp) { fFingerprint = fp; Invalidate(); }
 
 	virtual void Draw(BRect updateRect)
@@ -446,12 +452,9 @@ public:
 
 		// Stato (sotto il nome).
 		rgb_color statusColor;
-		if (fStatus.FindFirst("Pronto") >= 0
-			|| fStatus.FindFirst("Ricevuto") >= 0
-			|| fStatus.FindFirst("inviati") >= 0) {
+		if (fStatusGood) {
 			statusColor = (rgb_color){60, 180, 100, 255};
-		} else if (fStatus.FindFirst("fallito") >= 0
-			|| fStatus.FindFirst("Errore") >= 0) {
+		} else if (fStatusError) {
 			statusColor = (rgb_color){220, 60, 60, 255};
 		} else {
 			statusColor = tint_color(
@@ -474,8 +477,10 @@ public:
 
 private:
 	BString fDeviceName = "LocalSend";
-	BString fStatus = "Avvio...";
+	BString fStatus;
 	BString fFingerprint;
+	bool fStatusGood = false;
+	bool fStatusError = false;
 };
 
 
@@ -854,7 +859,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fHeader = new HeaderView();
 	fHeader->SetDeviceName(info->alias.c_str());
 	fHeader->SetFingerprint(info->fingerprint.c_str());
-	fHeader->SetStatus(Tr(S_READY));
+	fHeader->SetStatus(Tr(S_READY), true, false);
 
 	// Lista dispositivi con scroll.
 	fDeviceList = new BListView("devices");
@@ -916,7 +921,7 @@ void
 MainWindow::SetStatus(const char* text)
 {
 	if (LockLooper()) {
-		fHeader->SetStatus(text);
+		fHeader->SetStatus(text, false, false);
 		UnlockLooper();
 	}
 }
@@ -1186,7 +1191,7 @@ MainWindow::MessageReceived(BMessage* msg)
 			if (name) {
 				BString status(Tr(S_RECEIVED_COLON));
 				status << name;
-				fHeader->SetStatus(status.String());
+				fHeader->SetStatus(status.String(), true, false);
 
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
@@ -1238,9 +1243,11 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgSendDone:
 		{
 			const char* status = nullptr;
+			const char* checkSent = nullptr;
 			msg->FindString("status", &status);
+			bool ok = (msg->FindString("sent_file", &checkSent) == B_OK);
 			if (status)
-				fHeader->SetStatus(status);
+				fHeader->SetStatus(status, ok, !ok);
 			if (!fProgressBar->IsHidden())
 				fProgressBar->Hide();
 
@@ -1313,7 +1320,7 @@ MainWindow::SendToSelected()
 	if (!fFilePanel) {
 		fFilePanel = new BFilePanel(B_OPEN_PANEL, new BMessenger(this),
 			NULL, B_FILE_NODE, true, new BMessage(kMsgFileSelected));
-		fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, "Invia");
+		fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_SEND_FILE));
 		fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
 	}
 	fFilePanel->Show();
