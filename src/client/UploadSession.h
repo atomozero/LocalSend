@@ -4,6 +4,7 @@
 #ifndef _LOCALSEND_UPLOAD_SESSION_H
 #define _LOCALSEND_UPLOAD_SESSION_H
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -31,9 +32,15 @@ class UploadSession {
 public:
 	UploadSession(IHttpClient& http, DeviceInfo info);
 
+	// Callback chiamato dopo ogni file inviato: argomento = numero file inviati.
+	typedef std::function<void(int)> ProgressFn;
+
 	// Invia i file al ricevente host:port. 'pin' opzionale (vuoto = nessuno).
+	// 'progress' viene chiamato dopo ogni file completato (opzionale).
 	SendReport Send(const std::string& host, int port,
-		const std::vector<FileMetadata>& files, const std::string& pin = "");
+		const std::vector<FileMetadata>& files,
+		const std::string& pin = "",
+		ProgressFn progress = nullptr);
 
 private:
 	void Cancel(const std::string& host, int port,

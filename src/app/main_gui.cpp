@@ -66,6 +66,7 @@ enum {
 	kMsgFileReceived	= 'FRCV',
 	kMsgDeviceFound		= 'DSCV',
 	kMsgSendDone		= 'SDNE',
+	kMsgProgress		= 'PROG',
 	kMsgDeviceInvoked	= 'DINV',
 	kMsgShowSettings	= 'SETT',
 	kMsgSettingsSave	= 'SSAV',
@@ -576,6 +577,7 @@ private:
 	AppSettings* fSettings;
 
 	HeaderView* fHeader;
+	BStatusBar* fProgressBar;
 	BListView* fDeviceList;
 	BFilePanel* fFilePanel;
 
@@ -584,6 +586,10 @@ private:
 	ReceiveSession fSession;
 	FileSink fSink;
 	std::thread fServerThread;
+
+	// Progresso ricezione.
+	int fRecvTotal = 0;
+	int fRecvDone = 0;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -623,6 +629,12 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	labelFont.SetSize(be_plain_font->Size());
 	devLabel->SetFont(&labelFont);
 
+	// Barra di progresso.
+	fProgressBar = new BStatusBar("progress");
+	fProgressBar->SetBarHeight(10);
+	fProgressBar->SetMaxValue(1.0);
+	fProgressBar->Hide();
+
 	// Pulsanti.
 	BButton* sendBtn = new BButton("Invia file\xE2\x80\xA6",
 		new BMessage(kMsgSendFile));
@@ -636,6 +648,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.SetInsets(B_USE_WINDOW_INSETS)
 			.Add(devLabel)
 			.Add(scroll, 1.0)
+			.Add(fProgressBar)
 			.AddStrut(B_USE_HALF_ITEM_SPACING)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(sendBtn, 1.0)
@@ -713,6 +726,18 @@ MainWindow::StartServer(void* sslCtx)
 				break;
 		}
 
+		// Inizializza progresso ricezione.
+		fRecvTotal = static_cast<int>(out.result.fileTokens.size());
+		fRecvDone = 0;
+		{
+			BMessage prog(kMsgProgress);
+			prog.AddFloat("value", 0.0f);
+			BString label;
+			label << "0/" << (int32)fRecvTotal;
+			prog.AddString("label", label.String());
+			PostMessage(&prog);
+		}
+
 		return HttpServerResponse::Json(200,
 			BuildPrepareUploadResponse(out.result.sessionId,
 				out.result.fileTokens).Dump());
@@ -736,14 +761,29 @@ MainWindow::StartServer(void* sslCtx)
 			return HttpServerResponse::Empty(500);
 
 		fSession.MarkReceived(fileId);
+		fRecvDone++;
+
+		// Aggiorna barra di progresso.
+		{
+			BMessage prog(kMsgProgress);
+			prog.AddFloat("value", fRecvTotal > 0
+				? (float)fRecvDone / (float)fRecvTotal : 1.0f);
+			BString label;
+			label << (int32)fRecvDone << "/" << (int32)fRecvTotal;
+			prog.AddString("label", label.String());
+			PostMessage(&prog);
+		}
 
 		BMessage msg(kMsgFileReceived);
 		msg.AddString("name", name.c_str());
 		msg.AddString("path", outPath.c_str());
 		PostMessage(&msg);
 
-		if (fSession.IsComplete())
+		if (fSession.IsComplete()) {
 			fSession.Reset();
+			fRecvTotal = 0;
+			fRecvDone = 0;
+		}
 
 		return HttpServerResponse::Empty(200);
 	});
@@ -891,6 +931,11 @@ MainWindow::MessageReceived(BMessage* msg)
 				notif.SetTitle(Tr(S_FILE_RECEIVED));
 				notif.SetContent(name);
 				notif.Send();
+
+				// Nascondi la barra se la ricezione e' completa.
+				if (fRecvTotal > 0 && fRecvDone >= fRecvTotal
+					&& !fProgressBar->IsHidden())
+					fProgressBar->Hide();
 			}
 			break;
 		}
@@ -909,12 +954,30 @@ MainWindow::MessageReceived(BMessage* msg)
 			break;
 		}
 
+		case kMsgProgress:
+		{
+			float value = 0;
+			const char* label = nullptr;
+			msg->FindFloat("value", &value);
+			msg->FindString("label", &label);
+			if (fProgressBar->IsHidden())
+				fProgressBar->Show();
+			fProgressBar->Reset();
+			fProgressBar->SetMaxValue(1.0);
+			fProgressBar->SetTo(value);
+			if (label)
+				fProgressBar->SetTrailingText(label);
+			break;
+		}
+
 		case kMsgSendDone:
 		{
 			const char* status = nullptr;
 			msg->FindString("status", &status);
 			if (status)
 				fHeader->SetStatus(status);
+			if (!fProgressBar->IsHidden())
+				fProgressBar->Hide();
 			break;
 		}
 
@@ -989,10 +1052,29 @@ MainWindow::SendFiles(const std::string& host, int port,
 		if (files.empty())
 			return;
 
+		// Progresso: mostra la barra.
+		{
+			BMessage prog(kMsgProgress);
+			prog.AddFloat("value", 0.0f);
+			BString label;
+			label << "0/" << (int32)files.size();
+			prog.AddString("label", label.String());
+			PostMessage(&prog);
+		}
+
 		SocketHttpClient http;
 		http.EnableTls();
 		UploadSession session(http, *fInfo);
-		SendReport report = session.Send(host, port, files, "");
+		SendReport report = session.Send(host, port, files, "",
+			[this, &files](int done) {
+				BMessage prog(kMsgProgress);
+				prog.AddFloat("value",
+					(float)done / (float)files.size());
+				BString label;
+				label << (int32)done << "/" << (int32)files.size();
+				prog.AddString("label", label.String());
+				PostMessage(&prog);
+			});
 
 		BMessage msg(kMsgSendDone);
 		if (report.AllSent()) {

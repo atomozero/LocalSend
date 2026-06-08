@@ -39,7 +39,8 @@ UploadSession::Cancel(const std::string& host, int port,
 
 SendReport
 UploadSession::Send(const std::string& host, int port,
-	const std::vector<FileMetadata>& files, const std::string& pin)
+	const std::vector<FileMetadata>& files, const std::string& pin,
+	ProgressFn progress)
 {
 	SendReport report;
 
@@ -95,6 +96,9 @@ UploadSession::Send(const std::string& host, int port,
 			anyError = true;
 		}
 		report.files.push_back(out);
+
+		if (progress)
+			progress(static_cast<int>(report.files.size()));
 	}
 
 	// Passo 3: in caso di errore a meta' sessione, annulla.
