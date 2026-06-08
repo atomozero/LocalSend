@@ -78,6 +78,8 @@ addon: $(ADDON_SRC)
 install-addon: addon
 	mkdir -p "/boot/home/config/non-packaged/add-ons/Tracker"
 	cp "Send with LocalSend" "/boot/home/config/non-packaged/add-ons/Tracker/"
+	addattr -t "'VICN'" -f ApeCar.hvif BEOS:ICON \
+		"/boot/home/config/non-packaged/add-ons/Tracker/Send with LocalSend"
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
