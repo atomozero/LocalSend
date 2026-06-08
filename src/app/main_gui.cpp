@@ -15,6 +15,10 @@
 #include <Catalog.h>
 #include <CheckBox.h>
 #include <Clipboard.h>
+#include <File.h>
+#include <IconUtils.h>
+#include <Resources.h>
+#include <Roster.h>
 #include <ControlLook.h>
 #include <FilePanel.h>
 #include <Font.h>
@@ -474,11 +478,33 @@ class HeaderView : public BView {
 public:
 	HeaderView()
 		:
-		BView("header", B_WILL_DRAW | B_FULL_UPDATE_ON_RESIZE)
+		BView("header", B_WILL_DRAW | B_FULL_UPDATE_ON_RESIZE),
+		fIconBitmap(nullptr)
 	{
 		SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 		SetExplicitMinSize(BSize(350, 70));
 		SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 70));
+
+		// Carica l'icona HVIF dall'eseguibile (risorsa BEOS:ICON).
+		fIconBitmap = new BBitmap(BRect(0, 0, 31, 31), B_RGBA32);
+		app_info info;
+		if (be_app->GetAppInfo(&info) == B_OK) {
+			BFile file(&info.ref, B_READ_ONLY);
+			BResources res(&file);
+			size_t size;
+			const void* data = res.LoadResource('VICN', "BEOS:ICON",
+				&size);
+			if (data) {
+				BIconUtils::GetVectorIcon(
+					static_cast<const uint8*>(data),
+					size, fIconBitmap);
+			}
+		}
+	}
+
+	virtual ~HeaderView()
+	{
+		delete fIconBitmap;
 	}
 
 	void SetDeviceName(const char* name) { fDeviceName = name; Invalidate(); }
@@ -512,26 +538,16 @@ public:
 		float x = 16;
 		float y = 20;
 
-		// Cerchio con iniziale.
-		float circleR = 18;
-		rgb_color accent = (rgb_color){60, 140, 220, 255};
-		SetHighColor(accent);
-		FillEllipse(BPoint(x + circleR, y + circleR - 4), circleR, circleR);
+		// Icona dell'app.
+		float iconSize = 32;
+		if (fIconBitmap) {
+			SetDrawingMode(B_OP_ALPHA);
+			DrawBitmap(fIconBitmap,
+				BPoint(x, y + (36 - iconSize) / 2 - 4));
+			SetDrawingMode(B_OP_COPY);
+		}
 
-		SetHighColor(255, 255, 255);
-		BFont initialFont(be_bold_font);
-		initialFont.SetSize(18);
-		SetFont(&initialFont);
-		char initial[2] = {fDeviceName.Length() > 0
-			? fDeviceName.String()[0] : '?', 0};
-		float cw = StringWidth(initial);
-		font_height ifh;
-		initialFont.GetHeight(&ifh);
-		DrawString(initial,
-			BPoint(x + circleR - cw / 2,
-				y + circleR - 4 + (ifh.ascent - ifh.descent) / 2));
-
-		float textX = x + circleR * 2 + 14;
+		float textX = x + iconSize + 14;
 
 		// Nome dispositivo (grande).
 		SetHighColor(ui_color(B_PANEL_TEXT_COLOR));
@@ -573,6 +589,7 @@ private:
 	BString fFingerprint;
 	bool fStatusGood = false;
 	bool fStatusError = false;
+	BBitmap* fIconBitmap;
 };
 
 
