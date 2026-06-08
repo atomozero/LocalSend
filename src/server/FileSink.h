@@ -31,6 +31,9 @@ public:
 
 	const std::string& Dir() const { return fDestDir; }
 
+	// Cambia la cartella di destinazione (per le impostazioni).
+	void SetDir(const std::string& dir);
+
 private:
 	// Percorso libero in destDir per 'name' (aggiunge -1, -2... se occupato).
 	std::string UniquePath(const std::string& name) const;

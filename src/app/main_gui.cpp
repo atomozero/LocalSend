@@ -754,18 +754,31 @@ public:
 				fSettings->quickSave
 					= (fQuickSaveBox->Value() == B_CONTROL_ON);
 				// Lingua.
+				bool langChanged = false;
 				BMenuItem* marked = fLangMenu->FindMarked();
 				if (marked) {
 					int idx = fLangMenu->IndexOf(marked);
 					if (idx >= 0 && idx < kLangCount) {
-						fSettings->language = LanguageCode((Language)idx);
-						SetLanguage((Language)idx);
+						const char* code = LanguageCode((Language)idx);
+						if (fSettings->language != code) {
+							fSettings->language = code;
+							SetLanguage((Language)idx);
+							langChanged = true;
+						}
 					}
 				}
 				fSettings->Save(kSettingsFile);
 
 				// Notifica la finestra principale.
 				fTarget->PostMessage(new BMessage(kMsgSettingsSave));
+
+				if (langChanged) {
+					BAlert* alert = new BAlert("LocalSend",
+						Tr(S_LANG_RESTART),
+						Tr(S_OK), NULL, NULL,
+						B_WIDTH_AS_USUAL, B_INFO_ALERT);
+					alert->Go();
+				}
 				PostMessage(B_QUIT_REQUESTED);
 				break;
 			}
@@ -1283,10 +1296,30 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgSettingsSave:
 		{
 			// Applica le impostazioni modificate.
+
+			// Nome dispositivo.
 			fInfo->alias = fSettings->alias;
 			fHeader->SetDeviceName(fSettings->alias.c_str());
 			SetTitle(BString("LocalSend - ")
 				<< fSettings->alias.c_str());
+
+			// Cartella di destinazione.
+			fSink.SetDir(fSettings->destDir);
+			fSink.EnsureDir();
+
+			// Porta: richiede riavvio.
+			if (fSettings->port != fInfo->port) {
+				fInfo->port = fSettings->port;
+				BAlert* alert = new BAlert("LocalSend",
+					Tr(S_PORT_RESTART),
+					Tr(S_OK), NULL, NULL,
+					B_WIDTH_AS_USUAL, B_INFO_ALERT);
+				alert->Go();
+			}
+
+			// PIN e quickSave: letti direttamente da fSettings
+			// nelle route, nessuna azione extra.
+
 			break;
 		}
 

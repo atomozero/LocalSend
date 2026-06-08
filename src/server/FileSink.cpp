@@ -139,4 +139,14 @@ FileSink::Save(const std::string& fileName, const std::string& bytes,
 	return true;
 }
 
+void
+FileSink::SetDir(const std::string& dir)
+{
+	fDestDir = dir;
+	while (fDestDir.size() > 1 && fDestDir.back() == '/')
+		fDestDir.pop_back();
+	if (fDestDir.empty())
+		fDestDir = ".";
+}
+
 } // namespace LocalSend
