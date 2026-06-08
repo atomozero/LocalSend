@@ -3,10 +3,14 @@
 #ifndef _LOCALSEND_IHTTP_CLIENT_H
 #define _LOCALSEND_IHTTP_CLIENT_H
 
+#include <functional>
 #include <map>
 #include <string>
 
 namespace LocalSend {
+
+// Callback di progresso a livello di byte: (bytesTrasferiti, byteTotali).
+typedef std::function<void(long long, long long)> TransferProgressFn;
 
 struct HttpResponse {
 	int status = 0;
@@ -26,9 +30,11 @@ public:
 		const std::string& body) = 0;
 
 	// POST che invia in streaming il contenuto di un file come body.
+	// 'progress' (opzionale) viene chiamato dopo ogni chunk inviato.
 	virtual HttpResponse PostFile(const std::string& host, int port,
 		const std::string& path, const std::string& contentType,
-		const std::string& filePath) = 0;
+		const std::string& filePath,
+		TransferProgressFn progress = nullptr) = 0;
 };
 
 // Codifica percentuale per i valori di query (sessionId, fileId, token, pin).

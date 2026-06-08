@@ -684,6 +684,19 @@ MainWindow::StartServer(void* sslCtx)
 {
 	fServer.EnableTls(sslCtx);
 
+	// Progresso byte-level per la ricezione.
+	fServer.SetBodyProgressFn([this](long long received, long long total) {
+		if (total <= 0)
+			return;
+		BMessage prog(kMsgProgress);
+		float pct = (float)received / (float)total;
+		prog.AddFloat("value", pct);
+		BString label;
+		label << (int)(pct * 100) << "%";
+		prog.AddString("label", label.String());
+		PostMessage(&prog);
+	});
+
 	// Route: prepare-upload.
 	fServer.Route("POST", kApiPrepareUpload, [this](const HttpRequest& req) {
 		// Verifica PIN se configurato.
@@ -1052,13 +1065,11 @@ MainWindow::SendFiles(const std::string& host, int port,
 		if (files.empty())
 			return;
 
-		// Progresso: mostra la barra.
+		// Progresso: mostra la barra a 0%.
 		{
 			BMessage prog(kMsgProgress);
 			prog.AddFloat("value", 0.0f);
-			BString label;
-			label << "0/" << (int32)files.size();
-			prog.AddString("label", label.String());
+			prog.AddString("label", "0%");
 			PostMessage(&prog);
 		}
 
@@ -1066,12 +1077,14 @@ MainWindow::SendFiles(const std::string& host, int port,
 		http.EnableTls();
 		UploadSession session(http, *fInfo);
 		SendReport report = session.Send(host, port, files, "",
-			[this, &files](int done) {
+			[this](long long sent, long long total) {
+				if (total <= 0)
+					return;
 				BMessage prog(kMsgProgress);
-				prog.AddFloat("value",
-					(float)done / (float)files.size());
+				float pct = (float)sent / (float)total;
+				prog.AddFloat("value", pct);
 				BString label;
-				label << (int32)done << "/" << (int32)files.size();
+				label << (int)(pct * 100) << "%";
 				prog.AddString("label", label.String());
 				PostMessage(&prog);
 			});

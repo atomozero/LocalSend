@@ -137,6 +137,13 @@ SocketHttpServer::EnableTls(void* sslCtx)
 
 
 void
+SocketHttpServer::SetBodyProgressFn(BodyProgressFn fn)
+{
+	fBodyProgress = std::move(fn);
+}
+
+
+void
 SocketHttpServer::Route(const std::string& method, const std::string& path,
 	Handler handler)
 {
@@ -304,6 +311,9 @@ SocketHttpServer::HandleConnection(int clientFd)
 			if (n <= 0)
 				break;
 			body.append(tmp, static_cast<size_t>(n));
+			if (fBodyProgress && contentLength > 0)
+				fBodyProgress(static_cast<long long>(body.size()),
+					contentLength);
 		}
 		if (static_cast<long long>(body.size()) > contentLength)
 			body.resize(contentLength);

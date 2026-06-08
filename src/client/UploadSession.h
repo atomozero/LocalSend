@@ -32,11 +32,11 @@ class UploadSession {
 public:
 	UploadSession(IHttpClient& http, DeviceInfo info);
 
-	// Callback chiamato dopo ogni file inviato: argomento = numero file inviati.
-	typedef std::function<void(int)> ProgressFn;
+	// Callback di progresso: (byteInviati, byteTotaliSessione).
+	typedef std::function<void(long long, long long)> ProgressFn;
 
 	// Invia i file al ricevente host:port. 'pin' opzionale (vuoto = nessuno).
-	// 'progress' viene chiamato dopo ogni file completato (opzionale).
+	// 'progress' viene chiamato durante l'invio con i byte trasferiti.
 	SendReport Send(const std::string& host, int port,
 		const std::vector<FileMetadata>& files,
 		const std::string& pin = "",

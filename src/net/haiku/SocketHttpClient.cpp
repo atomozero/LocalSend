@@ -312,7 +312,7 @@ SocketHttpClient::Post(const std::string& host, int port,
 HttpResponse
 SocketHttpClient::PostFile(const std::string& host, int port,
 	const std::string& path, const std::string& contentType,
-	const std::string& filePath)
+	const std::string& filePath, TransferProgressFn progress)
 {
 	HttpResponse fail;
 	FILE* f = fopen(filePath.c_str(), "rb");
@@ -391,12 +391,16 @@ SocketHttpClient::PostFile(const std::string& host, int port,
 
 	char buf[65536];
 	bool ok = true;
+	long long totalSent = 0;
 	size_t n;
 	while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
 		if (!writeFn(buf, n)) {
 			ok = false;
 			break;
 		}
+		totalSent += static_cast<long long>(n);
+		if (progress)
+			progress(totalSent, size);
 	}
 	fclose(f);
 

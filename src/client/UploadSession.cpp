@@ -64,6 +64,14 @@ UploadSession::Send(const std::string& host, int port,
 	report.prepared = true;
 	report.sessionId = prep.sessionId;
 
+	// Calcola il totale dei byte accettati per il progresso.
+	long long totalBytes = 0;
+	for (const auto& f : files) {
+		if (prep.fileTokens.count(f.id))
+			totalBytes += f.size;
+	}
+	long long sentBytes = 0;
+
 	// Passo 2: upload per ogni file. I file assenti in risposta = rifiutati.
 	bool anyError = false;
 	for (const auto& f : files) {
@@ -84,10 +92,19 @@ UploadSession::Send(const std::string& host, int port,
 			+ "&fileId=" + UrlEncode(f.id)
 			+ "&token=" + UrlEncode(it->second);
 
+		long long baseBytes = sentBytes;
+		TransferProgressFn fileProgress;
+		if (progress) {
+			fileProgress = [&](long long fileSent, long long) {
+				progress(baseBytes + fileSent, totalBytes);
+			};
+		}
+
 		HttpResponse up = fHttp.PostFile(host, port, path, f.fileType,
-			f.localPath);
+			f.localPath, fileProgress);
 		if (up.IsOk()) {
 			out.status = FileOutcome::Status::Sent;
+			sentBytes += f.size;
 		} else {
 			out.status = FileOutcome::Status::Error;
 			out.detail = up.status == 0
@@ -96,9 +113,6 @@ UploadSession::Send(const std::string& host, int port,
 			anyError = true;
 		}
 		report.files.push_back(out);
-
-		if (progress)
-			progress(static_cast<int>(report.files.size()));
 	}
 
 	// Passo 3: in caso di errore a meta' sessione, annulla.

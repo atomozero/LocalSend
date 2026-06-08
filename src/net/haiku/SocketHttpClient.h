@@ -25,7 +25,8 @@ public:
 
 	HttpResponse PostFile(const std::string& host, int port,
 		const std::string& path, const std::string& contentType,
-		const std::string& filePath) override;
+		const std::string& filePath,
+		TransferProgressFn progress = nullptr) override;
 
 private:
 	void* fSslCtx; // SSL_CTX*, nullptr se TLS disabilitato

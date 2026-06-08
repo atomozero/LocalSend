@@ -22,6 +22,11 @@ public:
 	// come void* per evitare l'include di OpenSSL nell'header).
 	void EnableTls(void* sslCtx);
 
+	// Callback di progresso body (opzionale): chiamato durante la lettura
+	// del body per le richieste con content-length. (byteLetti, byteTotali).
+	typedef std::function<void(long long, long long)> BodyProgressFn;
+	void SetBodyProgressFn(BodyProgressFn fn);
+
 	void Route(const std::string& method, const std::string& path,
 		Handler handler) override;
 	bool Start(int port) override;
@@ -34,6 +39,7 @@ private:
 	int fListenFd = -1;
 	bool fRunning = false;
 	void* fSslCtx = nullptr;
+	BodyProgressFn fBodyProgress;
 	std::map<std::string, Handler> fRoutes; // chiave: "METODO PATH"
 };
 
