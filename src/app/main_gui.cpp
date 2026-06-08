@@ -77,7 +77,8 @@ enum {
 	kMsgClearHistory	= 'HCLR',
 	kMsgSendText		= 'STXT',
 	kMsgTextReady		= 'TXRD',
-	kMsgTextReceived	= 'TXRC'
+	kMsgTextReceived	= 'TXRC',
+	kMsgToggleFavorite	= 'TFAV'
 };
 
 
@@ -251,6 +252,72 @@ struct TransferHistory {
 };
 
 
+// --- Preferiti (dispositivi salvati) ----------------------------------------
+
+static const char* kFavoritesFile = "./localsend_favorites";
+
+struct Favorites {
+	// Fingerprint dei dispositivi preferiti.
+	std::vector<std::string> fingerprints;
+
+	bool Contains(const std::string& fp) const
+	{
+		for (const auto& f : fingerprints) {
+			if (f == fp)
+				return true;
+		}
+		return false;
+	}
+
+	void Add(const std::string& fp)
+	{
+		if (!Contains(fp)) {
+			fingerprints.push_back(fp);
+			Save();
+		}
+	}
+
+	void Remove(const std::string& fp)
+	{
+		for (auto it = fingerprints.begin();
+			it != fingerprints.end(); ++it) {
+			if (*it == fp) {
+				fingerprints.erase(it);
+				Save();
+				return;
+			}
+		}
+	}
+
+	void Load()
+	{
+		FILE* f = fopen(kFavoritesFile, "r");
+		if (!f)
+			return;
+		char line[256];
+		while (fgets(line, sizeof(line), f)) {
+			std::string l(line);
+			while (!l.empty()
+				&& (l.back() == '\n' || l.back() == '\r'))
+				l.pop_back();
+			if (!l.empty())
+				fingerprints.push_back(l);
+		}
+		fclose(f);
+	}
+
+	void Save() const
+	{
+		FILE* f = fopen(kFavoritesFile, "w");
+		if (!f)
+			return;
+		for (const auto& fp : fingerprints)
+			fprintf(f, "%s\n", fp.c_str());
+		fclose(f);
+	}
+};
+
+
 // --- Dispositivo scoperto in LAN -------------------------------------------
 
 struct DiscoveredDevice {
@@ -277,14 +344,19 @@ struct IncomingRequest {
 
 class DeviceListItem : public BListItem {
 public:
-	DeviceListItem(const char* name, const char* type, const char* ip)
+	DeviceListItem(const char* name, const char* type, const char* ip,
+		bool favorite = false)
 		:
 		BListItem(),
 		fName(name),
 		fType(type),
-		fIp(ip)
+		fIp(ip),
+		fFavorite(favorite)
 	{
 	}
+
+	void SetFavorite(bool fav) { fFavorite = fav; }
+	bool IsFavorite() const { return fFavorite; }
 
 	virtual void DrawItem(BView* owner, BRect frame, bool complete)
 	{
@@ -362,6 +434,16 @@ public:
 		detailFont.GetHeight(&fh);
 		owner->DrawString(detail.String(),
 			BPoint(textLeft, frame.bottom - 4 - fh.descent));
+
+		// Stella preferito.
+		if (fFavorite) {
+			owner->SetHighColor((rgb_color){240, 200, 40, 255});
+			BFont starFont(be_bold_font);
+			starFont.SetSize(14);
+			owner->SetFont(&starFont);
+			owner->DrawString("\xe2\x98\x85",
+				BPoint(frame.right - 20, frame.top + 18));
+		}
 	}
 
 	virtual void Update(BView* owner, const BFont* font)
@@ -377,6 +459,7 @@ private:
 	BString fName;
 	BString fType;
 	BString fIp;
+	bool fFavorite;
 };
 
 
@@ -916,9 +999,11 @@ private:
 	int fRecvTotal = 0;
 	int fRecvDone = 0;
 
-	// Cronologia.
+	// Cronologia e preferiti.
 	TransferHistory fHistory;
+	Favorites fFavorites;
 	std::string fLastSenderAlias;
+	std::string fLastSenderFingerprint;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -939,6 +1024,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 {
 	fSink.EnsureDir();
 	fHistory.Load();
+	fFavorites.Load();
 
 	// Header.
 	fHeader = new HeaderView();
@@ -970,6 +1056,8 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 		new BMessage(kMsgSendFile));
 	BButton* textBtn = new BButton(Tr(S_SEND_TEXT),
 		new BMessage(kMsgSendText));
+	BButton* favBtn = new BButton("\xe2\x98\x85",
+		new BMessage(kMsgToggleFavorite));
 	BButton* settingsBtn = new BButton(Tr(S_SETTINGS),
 		new BMessage(kMsgShowSettings));
 	BButton* historyBtn = new BButton(Tr(S_HISTORY),
@@ -987,6 +1075,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(sendBtn, 1.0)
 				.Add(textBtn, 1.0)
+				.Add(favBtn, 0.0)
 			.End()
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(historyBtn, 1.0)
@@ -1051,8 +1140,13 @@ MainWindow::StartServer(void* sslCtx)
 			return HttpServerResponse::Empty(400);
 		}
 
-		// Se quickSave e' attivo, accetta senza chiedere.
-		if (!fSettings->quickSave) {
+		// Auto-accept: quickSave accetta tutto, favoriti accettano
+		// solo i dispositivi salvati.
+		bool autoAccept = fSettings->quickSave;
+		if (!autoAccept && fFavorites.Contains(in.sender.fingerprint))
+			autoAccept = true;
+
+		if (!autoAccept) {
 			IncomingRequest incoming;
 			incoming.data = in;
 
@@ -1077,8 +1171,9 @@ MainWindow::StartServer(void* sslCtx)
 				break;
 		}
 
-		// Salva il mittente per la cronologia.
+		// Salva il mittente per la cronologia e i favoriti.
 		fLastSenderAlias = in.sender.alias;
+		fLastSenderFingerprint = in.sender.fingerprint;
 
 		// Inizializza progresso ricezione.
 		fRecvTotal = static_cast<int>(out.result.fileTokens.size());
@@ -1209,6 +1304,7 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	msg.AddString("alias", dev.alias.c_str());
 	msg.AddString("type", dev.deviceType.c_str());
 	msg.AddString("ip", dev.host.c_str());
+	msg.AddString("fingerprint", dev.fingerprint.c_str());
 	PostMessage(&msg);
 }
 
@@ -1345,12 +1441,39 @@ MainWindow::MessageReceived(BMessage* msg)
 			const char* alias = nullptr;
 			const char* type = nullptr;
 			const char* ip = nullptr;
+			const char* fp = nullptr;
 			msg->FindString("alias", &alias);
 			msg->FindString("type", &type);
 			msg->FindString("ip", &ip);
-			if (alias)
+			msg->FindString("fingerprint", &fp);
+			if (alias) {
+				bool fav = fp ? fFavorites.Contains(fp) : false;
 				fDeviceList->AddItem(new DeviceListItem(
-					alias, type ? type : "", ip ? ip : ""));
+					alias, type ? type : "", ip ? ip : "",
+					fav));
+			}
+			break;
+		}
+
+		case kMsgToggleFavorite:
+		{
+			std::lock_guard<std::mutex> lock(fDevicesMtx);
+			int32 sel = fDeviceList->CurrentSelection();
+			if (sel >= 0 && sel < (int32)fDevices.size()) {
+				auto& dev = fDevices[sel];
+				DeviceListItem* item = dynamic_cast<DeviceListItem*>(
+					fDeviceList->ItemAt(sel));
+				if (item) {
+					if (fFavorites.Contains(dev.fingerprint)) {
+						fFavorites.Remove(dev.fingerprint);
+						item->SetFavorite(false);
+					} else {
+						fFavorites.Add(dev.fingerprint);
+						item->SetFavorite(true);
+					}
+					fDeviceList->InvalidateItem(sel);
+				}
+			}
 			break;
 		}
 
