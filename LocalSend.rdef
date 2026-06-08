@@ -22,7 +22,7 @@ resource(1, "BEOS:FILE_TYPES") message {
 	"types" = "application/x-vnd.LocalSend"
 };
 
-resource(101, "BEOS:L:STD_ICON") #'VICN' array {
+resource(101, "BEOS:ICON") #'VICN' array {
 	$"6E636966060501040171020006053AE8"
 	$"313A1157BE51893F42704A8E28C2CF6A"
 	$"00E8E8E83AB3D0C681E8E8E8C984A398"
