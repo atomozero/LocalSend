@@ -1160,6 +1160,34 @@ MainWindow::HandleIncoming(IncomingRequest* req)
 void
 MainWindow::MessageReceived(BMessage* msg)
 {
+	// Drag & drop dal Tracker: stessa logica di kMsgFileSelected.
+	if (msg->WasDropped()) {
+		entry_ref ref;
+		if (msg->FindRef("refs", &ref) == B_OK) {
+			std::vector<std::string> paths;
+			for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++) {
+				BPath path(&ref);
+				if (path.InitCheck() == B_OK)
+					paths.push_back(path.Path());
+			}
+			if (!paths.empty()) {
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				int32 sel = fDeviceList->CurrentSelection();
+				if (sel < 0 || sel >= (int32)fDevices.size()) {
+					BAlert* alert = new BAlert("LocalSend",
+						Tr(S_SELECT_DEVICE), Tr(S_OK),
+						NULL, NULL, B_WIDTH_AS_USUAL,
+						B_INFO_ALERT);
+					alert->Go();
+				} else {
+					auto& dev = fDevices[sel];
+					SendFiles(dev.host, dev.port, paths);
+				}
+			}
+			return;
+		}
+	}
+
 	switch (msg->what) {
 		case kMsgSendFile:
 		case kMsgDeviceInvoked:

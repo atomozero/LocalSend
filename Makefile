@@ -63,12 +63,15 @@ $(RECV_BIN): $(RECV_OBJ)
 
 $(GUI_BIN): $(GUI_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe -ltracker
+	rc -o $(GUI_BIN).rsrc LocalSend.rdef
+	xres -o $(GUI_BIN) $(GUI_BIN).rsrc
+	mimeset -f $(GUI_BIN)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) test-receive-bin
+	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc test-receive-bin
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
 # socket, compilabile e runnabile ovunque (non solo Haiku). Niente -lnetwork.
