@@ -7,12 +7,12 @@ resource app_signature "application/x-vnd.LocalSend";
 resource app_flags B_SINGLE_LAUNCH;
 
 resource app_version {
-	major  = 0,
-	middle = 2,
+	major  = 1,
+	middle = 0,
 	minor  = 0,
 
-	variety = B_APPV_BETA,
-	internal = 1,
+	variety = B_APPV_FINAL,
+	internal = 0,
 
 	short_info = "LocalSend",
 	long_info = "Share files over LAN with any device running LocalSend."
