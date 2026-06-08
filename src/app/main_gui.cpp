@@ -33,6 +33,7 @@
 #include <StatusBar.h>
 #include <StringItem.h>
 #include <StringView.h>
+#include <TextView.h>
 #include <View.h>
 #include <Window.h>
 
@@ -73,7 +74,10 @@ enum {
 	kMsgBrowseDir		= 'BRWD',
 	kMsgDirSelected		= 'DSEL',
 	kMsgShowHistory		= 'HIST',
-	kMsgClearHistory	= 'HCLR'
+	kMsgClearHistory	= 'HCLR',
+	kMsgSendText		= 'STXT',
+	kMsgTextReady		= 'TXRD',
+	kMsgTextReceived	= 'TXRC'
 };
 
 
@@ -484,6 +488,72 @@ private:
 };
 
 
+// --- TextInputWindow -------------------------------------------------------
+
+class TextInputWindow : public BWindow {
+public:
+	TextInputWindow(BWindow* target)
+		:
+		BWindow(BRect(150, 150, 530, 350), Tr(S_SEND_TEXT),
+			B_TITLED_WINDOW,
+			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
+				| B_CLOSE_ON_ESCAPE),
+		fTarget(target)
+	{
+		BStringView* label = new BStringView("hint", Tr(S_TEXT_HINT));
+
+		fTextView = new BTextView("text");
+		fTextView->SetStylable(false);
+		fTextView->MakeEditable(true);
+		fTextView->SetWordWrap(true);
+		BScrollView* scroll = new BScrollView("tscroll", fTextView,
+			0, false, true, B_FANCY_BORDER);
+
+		BButton* sendBtn = new BButton(Tr(S_SEND_FILE),
+			new BMessage(kMsgTextReady));
+		BButton* cancelBtn = new BButton(Tr(S_CANCEL),
+			new BMessage(B_QUIT_REQUESTED));
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(label)
+			.Add(scroll, 1.0)
+			.AddGroup(B_HORIZONTAL)
+				.AddGlue()
+				.Add(cancelBtn)
+				.Add(sendBtn)
+			.End()
+		.End();
+
+		fTextView->MakeFocus(true);
+		CenterIn(target->Frame());
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		switch (msg->what) {
+			case kMsgTextReady:
+			{
+				const char* text = fTextView->Text();
+				if (text && text[0] != '\0') {
+					BMessage fwd(kMsgTextReady);
+					fwd.AddString("text", text);
+					fTarget->PostMessage(&fwd);
+				}
+				PostMessage(B_QUIT_REQUESTED);
+				break;
+			}
+			default:
+				BWindow::MessageReceived(msg);
+		}
+	}
+
+private:
+	BWindow* fTarget;
+	BTextView* fTextView;
+};
+
+
 // --- HistoryListItem -------------------------------------------------------
 
 class HistoryListItem : public BListItem {
@@ -823,6 +893,8 @@ public:
 
 private:
 	void SendToSelected();
+	void SendText(const std::string& host, int port,
+		const std::string& text);
 	void SendFiles(const std::string& host, int port,
 		const std::vector<std::string>& paths);
 
@@ -894,8 +966,10 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fProgressBar->Hide();
 
 	// Pulsanti.
-	BButton* sendBtn = new BButton("Invia file\xE2\x80\xA6",
+	BButton* sendBtn = new BButton(Tr(S_SEND_FILE),
 		new BMessage(kMsgSendFile));
+	BButton* textBtn = new BButton(Tr(S_SEND_TEXT),
+		new BMessage(kMsgSendText));
 	BButton* settingsBtn = new BButton(Tr(S_SETTINGS),
 		new BMessage(kMsgShowSettings));
 	BButton* historyBtn = new BButton(Tr(S_HISTORY),
@@ -912,8 +986,12 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.AddStrut(B_USE_HALF_ITEM_SPACING)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(sendBtn, 1.0)
+				.Add(textBtn, 0.0)
+			.End()
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(historyBtn, 0.0)
 				.Add(settingsBtn, 0.0)
+				.AddGlue()
 			.End()
 		.End()
 	.End();
@@ -1049,6 +1127,14 @@ MainWindow::StartServer(void* sslCtx)
 			label << (int32)fRecvDone << "/" << (int32)fRecvTotal;
 			prog.AddString("label", label.String());
 			PostMessage(&prog);
+		}
+
+		// Se e' un messaggio di testo, mostra in un dialogo.
+		if (mimeType == "text/plain" && req.body.size() < 10240) {
+			BMessage tmsg(kMsgTextReceived);
+			tmsg.AddString("text", req.body.c_str());
+			tmsg.AddString("sender", fLastSenderAlias.c_str());
+			PostMessage(&tmsg);
 		}
 
 		BMessage msg(kMsgFileReceived);
@@ -1307,6 +1393,62 @@ MainWindow::MessageReceived(BMessage* msg)
 			break;
 		}
 
+		case kMsgSendText:
+		{
+			int32 sel = fDeviceList->CurrentSelection();
+			if (sel < 0) {
+				BAlert* alert = new BAlert("LocalSend",
+					Tr(S_SELECT_DEVICE), Tr(S_OK),
+					NULL, NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
+				alert->Go();
+			} else {
+				TextInputWindow* tw = new TextInputWindow(this);
+				tw->Show();
+			}
+			break;
+		}
+
+		case kMsgTextReady:
+		{
+			const char* text = nullptr;
+			msg->FindString("text", &text);
+			if (text) {
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				int32 sel = fDeviceList->CurrentSelection();
+				if (sel >= 0 && sel < (int32)fDevices.size()) {
+					auto& dev = fDevices[sel];
+					SendText(dev.host, dev.port, text);
+				}
+			}
+			break;
+		}
+
+		case kMsgTextReceived:
+		{
+			const char* text = nullptr;
+			const char* sender = nullptr;
+			msg->FindString("text", &text);
+			msg->FindString("sender", &sender);
+			if (text) {
+				BString title(Tr(S_TEXT_RECEIVED));
+				if (sender) {
+					title << " - " << sender;
+				}
+				BAlert* alert = new BAlert(title.String(),
+					text, Tr(S_OK), NULL, NULL,
+					B_WIDTH_AS_USUAL, B_INFO_ALERT);
+				alert->SetShortcut(0, B_ENTER);
+				alert->Go();
+
+				BNotification notif(B_INFORMATION_NOTIFICATION);
+				notif.SetGroup("LocalSend");
+				notif.SetTitle(Tr(S_TEXT_RECEIVED));
+				notif.SetContent(text);
+				notif.Send();
+			}
+			break;
+		}
+
 		case kMsgShowHistory:
 		{
 			HistoryWindow* hw = new HistoryWindow(&fHistory, this);
@@ -1385,6 +1527,52 @@ MainWindow::SendToSelected()
 		fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
 	}
 	fFilePanel->Show();
+}
+
+
+void
+MainWindow::SendText(const std::string& host, int port,
+	const std::string& text)
+{
+	fHeader->SetStatus(Tr(S_SENDING));
+
+	std::thread([this, host, port, text]() {
+		// Scrivi il testo in un file temporaneo.
+		std::string tmpPath = "/tmp/localsend_text_msg.txt";
+		FILE* f = fopen(tmpPath.c_str(), "w");
+		if (!f)
+			return;
+		fwrite(text.data(), 1, text.size(), f);
+		fclose(f);
+
+		FileMetadata m;
+		m.id = "text-1";
+		m.fileName = "message.txt";
+		m.size = static_cast<long long>(text.size());
+		m.fileType = "text/plain";
+		m.localPath = tmpPath;
+
+		std::vector<FileMetadata> files;
+		files.push_back(m);
+
+		SocketHttpClient http;
+		http.EnableTls();
+		UploadSession session(http, *fInfo);
+		SendReport report = session.Send(host, port, files, "");
+
+		remove(tmpPath.c_str());
+
+		BMessage msg(kMsgSendDone);
+		if (report.AllSent()) {
+			msg.AddString("status", Tr(S_FILES_SENT));
+			msg.AddString("sent_file", "message.txt");
+		} else {
+			msg.AddString("status", Tr(S_SEND_FAILED));
+		}
+		msg.AddInt64("total_size", (int64)text.size());
+		msg.AddString("peer", host.c_str());
+		PostMessage(&msg);
+	}).detach();
 }
 
 
