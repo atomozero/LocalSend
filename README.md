@@ -1,22 +1,34 @@
 # LocalSend for Haiku
 
-Native Haiku client for the LocalSend v2.1 protocol: share files over LAN with
-any device (Android, iOS, Windows, macOS, Linux) running LocalSend, without
-internet and without third-party servers.
+Native Haiku client for the LocalSend v2.1 protocol: share files and text
+messages over LAN with any device (Android, iOS, Windows, macOS, Linux)
+running LocalSend, without internet and without third-party servers.
 
 ![LocalSend on Haiku](screenshots/LocalSend_V0.1.png)
 
 ## Features
 
-- **GUI application** (`LocalSend`) with device discovery, file sending,
-  accept/reject dialog, system notifications, and settings
+- **GUI application** (`LocalSend`) with device discovery, file/text sending,
+  accept/reject dialog, system notifications, settings, transfer history,
+  favorites, and share-via-link
 - **CLI tools** (`localsend-send`, `localsend-receive`) for terminal use
 - **HTTPS** with self-signed certificates (TLS via OpenSSL 3)
 - **Automatic discovery** via UDP multicast (224.0.0.167:53317)
-- **BFS integration**: received files get the correct MIME type attribute
+- **Text messaging** — send and receive text messages (shown as popup dialog)
+- **Download API** — share files via browser link (any device on LAN can
+  download without LocalSend installed)
+- **Drag & drop** — drop files from Tracker onto the window to send
+- **Tracker add-on** — right-click files in Tracker and choose
+  "Send with LocalSend"
+- **Favorites** — mark devices for auto-accept with a gold star
+- **Transfer history** — persistent log of sent/received files
+- **BFS integration** — received files get the correct MIME type attribute
+- **Parallel uploads** — multiple files are sent simultaneously
 - **Localized** in Italian, English, Japanese, Chinese, and Spanish
   (auto-detects system language)
 - **PIN protection** and interactive accept/reject for incoming transfers
+- **Command-line file arguments** — `./LocalSend photo.png` opens the GUI
+  with the file ready to send
 - Zero external dependencies beyond Haiku system libraries and OpenSSL
 
 ## Quick start
@@ -28,29 +40,32 @@ make
 ./LocalSend
 ```
 
-The GUI window shows discovered devices on the LAN. Select a device and click
-"Send file..." to send, or wait for incoming transfers (an accept/reject dialog
-will appear). Settings are accessible from the main window.
+The GUI window shows discovered devices on the LAN. Select a device and:
+- Click **"Send file..."** to send files (or drag files onto the window)
+- Click **"Send text..."** to send a text message
+- Click **"Share via link..."** to generate a browser-downloadable link
+- Click **★** to add/remove a device from favorites
+
+Incoming transfers show an accept/reject dialog (favorites are auto-accepted).
+
+### Tracker integration
+
+```
+make install-addon
+```
+
+Right-click any file in Tracker → Add-ons → **"Send with LocalSend"**.
 
 ### CLI
 
 **Send files:**
 ```
 ./localsend-send <host> <file> [file...] [--pin PIN] [--port PORT] [--alias NAME]
-
-# Example: send to a phone running LocalSend
-./localsend-send 192.168.1.42 ./photo.png ./notes.txt --pin 123456
 ```
 
 **Receive files:**
 ```
 ./localsend-receive [--dir FOLDER] [--port PORT] [--alias NAME] [--pin PIN] [--auto]
-
-# Example: receive into ./received with PIN
-./localsend-receive --dir ./received --pin 1234
-
-# Auto-accept all incoming transfers (no confirmation prompt)
-./localsend-receive --auto
 ```
 
 ## Build
@@ -59,8 +74,9 @@ Requires Haiku with GCC, OpenSSL (`openssl_devel`), and standard system
 libraries (`libbe`, `libnetwork`, `libtracker`).
 
 ```
-make                 # builds localsend-send, localsend-receive, LocalSend (GUI)
-make test-receive    # runs protocol-level unit tests (no network needed)
+make                 # builds everything: GUI, CLI tools, Tracker add-on
+make install-addon   # installs Tracker context menu add-on
+make test-receive    # runs protocol-level unit tests
 make clean           # removes all build artifacts
 ```
 
@@ -68,41 +84,22 @@ make clean           # removes all build artifacts
 
 ```
 src/
-  protocol/          # Shared models, JSON, constants, fingerprint (L0-L3)
+  protocol/          # Shared models, JSON, constants, fingerprint
   net/               # HTTP client/server, TLS, multicast announcer
   client/            # Sender logic (UploadSession, FileSource)
   server/            # Receiver logic (ReceiveSession, FileSink + BFS attrs)
-  app/               # CLI entry points + GUI application + i18n
+  app/               # GUI application, CLI entry points, i18n
+  addon/             # Tracker context menu add-on
 ```
-
-The protocol layer is transport-independent and fully tested. The GUI combines
-sender, receiver, and discovery in a single BApplication with a background
-HTTPS server thread.
 
 ## Protocol (v2.1)
 
 - Multicast UDP 224.0.0.167:53317 for device discovery
 - HTTPS TCP 53317 for file transfer
-- Upload API: `prepare-upload` (metadata) -> `upload` (binary) -> `cancel`
+- HTTP TCP 53318 for Download API (browser access)
+- Upload API: `prepare-upload` → `upload` → `cancel`
+- Download API: browser visits `http://host:53318` to download shared files
 - Source: official `localsend/protocol` repository
-
-## Documentation (Italian)
-
-- `docs/00-verifica-haiku.md`: technical verification checklist for Haiku
-- `docs/01-design-L0.md`: sender design (L0)
-- `docs/02-design-L1.md`: receiver design (L1)
-- `docs/coding-style.md`: coding style (Haiku guidelines)
-
-## Milestone status
-
-| Level | Description | Status |
-|-------|-------------|--------|
-| L0 | Haiku sender (HTTPS) | Done |
-| L1 | Haiku receiver (HTTPS server) | Done |
-| L2 | Automatic discovery (multicast + /register + /info) | Done |
-| L3 | Security (TLS self-signed, fingerprint, PIN, accept/reject) | Done |
-| L4 | Haiku integration (BFS MIME attrs, GUI, notifications, i18n) | Done |
-| L5 | Download API (browser mode) | Planned |
 
 ## License
 
