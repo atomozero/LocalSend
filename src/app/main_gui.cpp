@@ -79,7 +79,9 @@ enum {
 	kMsgTextReady		= 'TXRD',
 	kMsgTextReceived	= 'TXRC',
 	kMsgToggleFavorite	= 'TFAV',
-	kMsgPendingFiles	= 'PEND'
+	kMsgPendingFiles	= 'PEND',
+	kMsgShareLink		= 'SLNK',
+	kMsgStopShare		= 'SSHR'
 };
 
 
@@ -983,6 +985,8 @@ private:
 		const std::string& text);
 	void SendFiles(const std::string& host, int port,
 		const std::vector<std::string>& paths);
+	void StartDownloadServer(const std::vector<std::string>& files);
+	void StopDownloadServer();
 
 	DeviceInfo* fInfo;
 	AppSettings* fSettings;
@@ -1010,6 +1014,12 @@ private:
 
 	// File in attesa (da argomento CLI o drag&drop prima della selezione).
 	std::vector<std::string> fPendingPaths;
+
+	// Download API (L5): server HTTP plain per condivisione via browser.
+	SocketHttpServer fDownloadServer;
+	std::thread fDownloadThread;
+	std::vector<std::string> fSharedFiles; // path dei file condivisi
+	bool fDownloadActive = false;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -1085,6 +1095,8 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.End()
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(historyBtn, 1.0)
+				.Add(new BButton(Tr(S_SHARE_LINK),
+					new BMessage(kMsgShareLink)), 1.0)
 				.Add(settingsBtn, 1.0)
 			.End()
 		.End()
@@ -1461,6 +1473,50 @@ MainWindow::MessageReceived(BMessage* msg)
 			break;
 		}
 
+		case kMsgShareLink:
+		{
+			if (fDownloadActive) {
+				StopDownloadServer();
+				fHeader->SetStatus(Tr(S_READY), true, false);
+			} else {
+				// Apri il file picker per scegliere i file da condividere.
+				if (!fFilePanel) {
+					fFilePanel = new BFilePanel(B_OPEN_PANEL,
+						new BMessenger(this), NULL, B_FILE_NODE,
+						true, new BMessage(kMsgShareLink));
+					fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON,
+						Tr(S_SHARE_LINK));
+					fFilePanel->Window()->SetTitle(
+						Tr(S_CHOOSE_FILES));
+				} else {
+					fFilePanel->SetMessage(
+						new BMessage(kMsgShareLink));
+				}
+				// Controlla se ci sono refs (dal file picker).
+				entry_ref ref;
+				if (msg->FindRef("refs", &ref) == B_OK) {
+					std::vector<std::string> paths;
+					for (int i = 0;
+						msg->FindRef("refs", i, &ref) == B_OK;
+						i++) {
+						BPath path(&ref);
+						if (path.InitCheck() == B_OK)
+							paths.push_back(path.Path());
+					}
+					if (!paths.empty())
+						StartDownloadServer(paths);
+				} else {
+					fFilePanel->Show();
+				}
+			}
+			break;
+		}
+
+		case kMsgStopShare:
+			StopDownloadServer();
+			fHeader->SetStatus(Tr(S_READY), true, false);
+			break;
+
 		case kMsgToggleFavorite:
 		{
 			std::lock_guard<std::mutex> lock(fDevicesMtx);
@@ -1639,6 +1695,7 @@ MainWindow::MessageReceived(BMessage* msg)
 bool
 MainWindow::QuitRequested()
 {
+	StopDownloadServer();
 	StopServer();
 	be_app->PostMessage(B_QUIT_REQUESTED);
 	return true;
@@ -1820,6 +1877,126 @@ MainWindow::SendFiles(const std::string& host, int port,
 		msg.AddString("peer", host.c_str());
 		PostMessage(&msg);
 	}).detach();
+}
+
+
+void
+MainWindow::StartDownloadServer(const std::vector<std::string>& files)
+{
+	if (fDownloadActive)
+		StopDownloadServer();
+
+	fSharedFiles = files;
+
+	// Pagina HTML con la lista dei file scaricabili.
+	fDownloadServer.Route("GET", "/", [this](const HttpRequest&) {
+		BString html;
+		html << "<!DOCTYPE html><html><head>"
+			"<meta charset=\"utf-8\">"
+			"<meta name=\"viewport\" content=\"width=device-width\">"
+			"<title>LocalSend - Haiku Box</title>"
+			"<style>"
+			"body{font-family:sans-serif;max-width:600px;margin:40px auto;"
+			"padding:0 20px;background:#f5f5f5}"
+			"h1{color:#3c8cdc}"
+			"a{display:block;padding:12px 16px;margin:8px 0;"
+			"background:#fff;border-radius:8px;color:#333;"
+			"text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,.1)}"
+			"a:hover{background:#e8f0fe}"
+			".size{color:#888;font-size:0.9em}"
+			"</style></head><body>"
+			"<h1>LocalSend</h1>"
+			"<p>Haiku Box</p>";
+		for (size_t i = 0; i < fSharedFiles.size(); i++) {
+			std::string name = fSharedFiles[i];
+			size_t slash = name.find_last_of('/');
+			if (slash != std::string::npos)
+				name = name.substr(slash + 1);
+			// Dimensione file.
+			FILE* f = fopen(fSharedFiles[i].c_str(), "rb");
+			long long sz = 0;
+			if (f) {
+				fseek(f, 0, SEEK_END);
+				sz = ftell(f);
+				fclose(f);
+			}
+			html << "<a href=\"/download?id=" << (int32)i << "\">"
+				<< name.c_str();
+			if (sz >= 1024 * 1024)
+				html << " <span class=\"size\">(" << (int)(sz / (1024*1024)) << " MB)</span>";
+			else
+				html << " <span class=\"size\">(" << (int)(sz / 1024) << " KB)</span>";
+			html << "</a>";
+		}
+		html << "</body></html>";
+		return HttpServerResponse{200, "text/html; charset=utf-8",
+			html.String()};
+	});
+
+	// Download del file.
+	fDownloadServer.Route("GET", "/download",
+		[this](const HttpRequest& req) {
+		std::string idStr = req.Query("id");
+		int id = atoi(idStr.c_str());
+		if (id < 0 || id >= (int)fSharedFiles.size())
+			return HttpServerResponse::Empty(404);
+
+		FILE* f = fopen(fSharedFiles[id].c_str(), "rb");
+		if (!f)
+			return HttpServerResponse::Empty(404);
+		fseek(f, 0, SEEK_END);
+		long size = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		std::string body(size, '\0');
+		fread(&body[0], 1, size, f);
+		fclose(f);
+
+		// Nome file per il Content-Disposition.
+		std::string name = fSharedFiles[id];
+		size_t slash = name.find_last_of('/');
+		if (slash != std::string::npos)
+			name = name.substr(slash + 1);
+
+		HttpServerResponse resp;
+		resp.status = 200;
+		resp.contentType = "application/octet-stream";
+		resp.body = std::move(body);
+		return resp;
+	});
+
+	if (!fDownloadServer.Start(kDownloadPort)) {
+		BAlert* alert = new BAlert("LocalSend",
+			Tr(S_PORT_BUSY), Tr(S_OK), NULL, NULL,
+			B_WIDTH_AS_USUAL, B_STOP_ALERT);
+		alert->Go();
+		return;
+	}
+
+	fDownloadActive = true;
+	fDownloadThread = std::thread([this]() { fDownloadServer.Run(); });
+
+	// Trova l'IP locale per mostrare il link.
+	char hostname[256] = {};
+	gethostname(hostname, sizeof(hostname));
+
+	BString status;
+	char buf[256];
+	snprintf(buf, sizeof(buf), Tr(S_SHARE_LINK_ACTIVE), kDownloadPort);
+	status << buf << "\nhttp://" << hostname << ":" << kDownloadPort;
+	fHeader->SetStatus(status.String(), true, false);
+}
+
+
+void
+MainWindow::StopDownloadServer()
+{
+	if (!fDownloadActive)
+		return;
+	fDownloadServer.Stop();
+	if (fDownloadThread.joinable())
+		fDownloadThread.join();
+	fDownloadActive = false;
+	fSharedFiles.clear();
 }
 
 
