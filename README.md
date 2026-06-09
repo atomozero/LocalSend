@@ -80,28 +80,7 @@ make test-receive    # runs protocol-level unit tests
 make clean           # removes all build artifacts
 ```
 
-## Architecture
-
-```
-src/
-  protocol/          # Shared models, JSON, constants, fingerprint
-  net/               # HTTP client/server, TLS, multicast announcer
-  client/            # Sender logic (UploadSession, FileSource)
-  server/            # Receiver logic (ReceiveSession, FileSink + BFS attrs)
-  app/               # GUI application, CLI entry points, i18n
-  addon/             # Tracker context menu add-on
-```
-
-## Protocol (v2.1)
-
-- Multicast UDP 224.0.0.167:53317 for device discovery
-- HTTPS TCP 53317 for file transfer
-- HTTP TCP 53318 for Download API (browser access)
-- Upload API: `prepare-upload` → `upload` → `cancel`
-- Download API: browser visits `http://host:53318` to download shared files
-- Source: official `localsend/protocol` repository
-
-## About
+## Be careful
 
 This software may contain traces of peanuts and LLM.
 
@@ -110,7 +89,3 @@ This software may contain traces of peanuts and LLM.
 If you find this project useful, you can buy me a coffee:
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
-
-## License
-
-MIT. See `LICENSE`.
