@@ -1,35 +1,25 @@
 # LocalSend for Haiku
 
-Native Haiku client for the LocalSend v2.1 protocol: share files and text
-messages over LAN with any device (Android, iOS, Windows, macOS, Linux)
-running LocalSend, without internet and without third-party servers.
+Native Haiku client for the LocalSend: share files and text messages over LAN with any device (Android, iOS, Windows, macOS, Linux) running LocalSend, without internet and without third-party servers.
 
 ![LocalSend on Haiku](screenshots/LocalSend_V1.0.png)
 
+If LocalSend for Haiku saves you time, consider supporting development: [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
+
+
 ## Features
 
-- **GUI application** (`LocalSend`) with device discovery, file/text sending,
-  accept/reject dialog, system notifications, settings, transfer history,
-  favorites, and share-via-link
-- **CLI tools** (`localsend-send`, `localsend-receive`) for terminal use
-- **HTTPS** with self-signed certificates (TLS via OpenSSL 3)
-- **Automatic discovery** via UDP multicast (224.0.0.167:53317)
-- **Text messaging** — send and receive text messages (shown as popup dialog)
-- **Download API** — share files via browser link (any device on LAN can
-  download without LocalSend installed)
-- **Drag & drop** — drop files from Tracker onto the window to send
-- **Tracker add-on** — right-click files in Tracker and choose
-  "Send with LocalSend"
-- **Favorites** — mark devices for auto-accept with a gold star
-- **Transfer history** — persistent log of sent/received files
-- **BFS integration** — received files get the correct MIME type attribute
-- **Parallel uploads** — multiple files are sent simultaneously
-- **Localized** in Italian, English, Japanese, Chinese, and Spanish
-  (auto-detects system language)
-- **PIN protection** and interactive accept/reject for incoming transfers
-- **Command-line file arguments** — `./LocalSend photo.png` opens the GUI
-  with the file ready to send
-- Zero external dependencies beyond Haiku system libraries and OpenSSL
+* Native Haiku GUI and CLI clients
+* Secure HTTPS transfers with self-signed TLS certificates
+* Automatic LAN device discovery via multicast
+* Send files and text messages to any LocalSend-compatible device
+* Share files through browser-downloadable links
+* Drag & drop support and Tracker context-menu integration
+* Favorites, transfer history, notifications, and PIN protection
+* BFS MIME type integration for received files
+* Parallel file uploads for improved performance
+* Localized in English, Italian, Japanese, Chinese, and Spanish
+* No external dependencies beyond Haiku system libraries and OpenSSL
 
 ## Quick start
 
@@ -81,11 +71,8 @@ make clean           # removes all build artifacts
 ```
 
 ## Be careful
-
-This software may contain traces of peanuts and LLM.
+> **Developer's Note**: This software may contain traces of peanuts and LLM. It has been developed with passion for the Haiku platform.
 
 ## Support
 
-If you find this project useful, you can buy me a coffee:
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
+If you find this project useful, you can buy me a coffee: [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-atomozero-yellow?logo=buymeacoffee)](https://buymeacoffee.com/atomozero)
