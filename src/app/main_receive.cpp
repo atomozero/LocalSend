@@ -10,7 +10,7 @@
 //   --auto        Accetta automaticamente senza chiedere conferma
 //
 // Esempio:
-//   localsend-receive --dir ./ricevuti --pin 1234
+//   localsend-receive --dir /boot/home/Downloads --pin 1234
 
 #include <signal.h>
 
@@ -87,7 +87,7 @@ main(int argc, char** argv)
 	signal(SIGINT, OnSignal);
 	signal(SIGTERM, OnSignal);
 
-	std::string destDir = "./ricevuti";
+	std::string destDir = "/boot/home/Downloads";
 	int port = kDefaultPort;
 	std::string alias = "Haiku Box";
 	std::string requiredPin;
