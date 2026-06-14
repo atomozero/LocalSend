@@ -69,6 +69,9 @@ enum StringId {
 	S_ADD_FAVORITE,
 	S_REMOVE_FAVORITE,
 	S_FAVORITES_ONLY,
+	S_INTEGRATION,
+	S_ADD_TO_DESKBAR,
+	S_REMOVE_FROM_DESKBAR,
 	// Fine
 	S_COUNT
 };
@@ -438,6 +441,27 @@ static const char* sStrings[S_COUNT][kLangCount] = {
 	  "\xe3\x81\x8a\xe6\xb0\x97\xe3\x81\xab\xe5\x85\xa5\xe3\x82\x8a\xe3\x81\xae\xe3\x81\xbf\xef\xbc\x88\xe8\x87\xaa\xe5\x8b\x95\xe5\x8f\x97\xe4\xbf\xa1\xef\xbc\x89", // お気に入りのみ（自動受信）
 	  "\xe4\xbb\x85\xe6\x94\xb6\xe8\x97\x8f\xef\xbc\x88\xe8\x87\xaa\xe5\x8a\xa8\xe6\x8e\xa5\xe5\x8f\x97\xef\xbc\x89", // 仅收藏（自动接受）
 	  "Solo favoritos (aceptar autom\xc3\xa1ticamente)" },
+
+	// S_INTEGRATION
+	{ "Integrazione",
+	  "Integration",
+	  "\xe7\xb5\xb1\xe5\x90\x88", // 統合
+	  "\xe9\x9b\x86\xe6\x88\x90", // 集成
+	  "Integraci\xc3\xb3n" },
+
+	// S_ADD_TO_DESKBAR
+	{ "Aggiungi al Deskbar",
+	  "Add to Deskbar",
+	  "Deskbar\xe3\x81\xab\xe8\xbf\xbd\xe5\x8a\xa0", // Deskbarに追加
+	  "\xe6\xb7\xbb\xe5\x8a\xa0\xe5\x88\xb0 Deskbar", // 添加到 Deskbar
+	  "A\xc3\xb1""adir al Deskbar" },
+
+	// S_REMOVE_FROM_DESKBAR
+	{ "Rimuovi dal Deskbar",
+	  "Remove from Deskbar",
+	  "Deskbar\xe3\x81\x8b\xe3\x82\x89\xe5\x89\x8a\xe9\x99\xa4", // Deskbarから削除
+	  "\xe4\xbb\x8e Deskbar \xe7\xa7\xbb\xe9\x99\xa4", // 从 Deskbar 移除
+	  "Quitar del Deskbar" },
 };
 
 static Language sCurrentLang = kLangItalian;

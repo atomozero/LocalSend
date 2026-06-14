@@ -49,6 +49,7 @@
 #include <vector>
 #include <condition_variable>
 
+#include "app/DeskbarItem.h"
 #include "app/Locale.h"
 #include "net/MulticastAnnouncer.h"
 #include "net/TlsContext.h"
@@ -87,7 +88,8 @@ enum {
 	kMsgPendingFiles	= 'PEND',
 	kMsgShareLink		= 'SLNK',
 	kMsgStopShare		= 'SSHR',
-	kMsgAbout			= 'ABOU'
+	kMsgAbout			= 'ABOU',
+	kMsgToggleDeskbar	= 'TDBR'
 };
 
 
@@ -856,6 +858,12 @@ public:
 		BButton* cancelBtn = new BButton(Tr(S_CANCEL),
 			new BMessage(B_QUIT_REQUESTED));
 
+		// Toggle Deskbar: etichetta scelta in base allo stato corrente.
+		fDeskbarBtn = new BButton("deskbar",
+			IsDeskbarItemInstalled()
+				? Tr(S_REMOVE_FROM_DESKBAR) : Tr(S_ADD_TO_DESKBAR),
+			new BMessage(kMsgToggleDeskbar));
+
 		// Intestazioni sezione (grassetto).
 		auto MakeLabel = [](const char* text) {
 			BStringView* sv = new BStringView("", text);
@@ -881,6 +889,12 @@ public:
 			.Add(MakeLabel(Tr(S_SECURITY)))
 			.Add(fPinField)
 			.Add(fQuickSaveBox)
+			.AddStrut(B_USE_ITEM_SPACING)
+			.Add(MakeLabel(Tr(S_INTEGRATION)))
+			.AddGroup(B_HORIZONTAL)
+				.Add(fDeskbarBtn)
+				.AddGlue()
+			.End()
 			.AddGlue()
 			.AddGroup(B_HORIZONTAL)
 				.AddGlue()
@@ -906,6 +920,30 @@ public:
 			case kMsgBrowseDir:
 				fDirPanel->Show();
 				break;
+
+			case kMsgToggleDeskbar:
+			{
+				status_t err;
+				if (IsDeskbarItemInstalled()) {
+					err = RemoveDeskbarItem();
+				} else {
+					err = InstallDeskbarItem();
+				}
+				fDeskbarBtn->SetLabel(IsDeskbarItemInstalled()
+					? Tr(S_REMOVE_FROM_DESKBAR)
+					: Tr(S_ADD_TO_DESKBAR));
+				if (err != B_OK) {
+					char buf[256];
+					snprintf(buf, sizeof(buf),
+						"Operazione Deskbar fallita: %s (%ld)",
+						strerror(err), (long)err);
+					BAlert* a = new BAlert("LocalSend", buf,
+						Tr(S_OK), NULL, NULL,
+						B_WIDTH_AS_USUAL, B_WARNING_ALERT);
+					a->Go();
+				}
+				break;
+			}
 
 			case kMsgDirSelected:
 			{
@@ -976,6 +1014,7 @@ private:
 	BPopUpMenu* fLangMenu;
 	BMenuField* fLangField;
 	BFilePanel* fDirPanel;
+	BButton* fDeskbarBtn;
 };
 
 

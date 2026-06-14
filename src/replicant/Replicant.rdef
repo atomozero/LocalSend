@@ -1,0 +1,20 @@
+/*
+ * Risorse del Deskbar replicant LocalSend.
+ * Una signature MIME propria e' necessaria perche' il BShelf, archiviando
+ * la view appena aggiunta, registra il campo "add_on" e la Deskbar usa quel
+ * valore per ricaricare l'add-on al ripristino.
+ */
+
+resource app_signature "application/x-vnd.LocalSend-Deskbar";
+
+resource app_flags B_SINGLE_LAUNCH;
+
+resource app_version {
+	major  = 1,
+	middle = 0,
+	minor  = 0,
+	variety = B_APPV_FINAL,
+	internal = 0,
+	short_info = "LocalSend Deskbar",
+	long_info = "LocalSend tray icon for Haiku Deskbar"
+};

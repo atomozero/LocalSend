@@ -44,9 +44,11 @@ GUI_SRC = $(PROTO) \
 	src/client/UploadSession.cpp \
 	src/server/FileSink.cpp \
 	src/server/ReceiveSession.cpp \
+	src/app/DeskbarItem.cpp \
 	src/app/main_gui.cpp
 
 ADDON_SRC = src/addon/TrackerAddon.cpp
+REPLICANT_SRC = src/replicant/DeskbarReplicant.cpp
 
 SEND_OBJ = $(SEND_SRC:.cpp=.o)
 RECV_OBJ = $(RECV_SRC:.cpp=.o)
@@ -55,8 +57,9 @@ SEND_BIN = localsend-send
 RECV_BIN = localsend-receive
 GUI_BIN  = LocalSend
 ADDON_BIN = Send_with_LocalSend
+REPLICANT_BIN = LocalSendDeskbar
 
-all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) addon
+all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) addon $(REPLICANT_BIN)
 
 $(SEND_BIN): $(SEND_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS) $(SSL_LIBS)
@@ -75,6 +78,16 @@ addon: $(ADDON_SRC)
 	rc -o addon.rsrc LocalSend.rdef
 	xres -o "Send with LocalSend" addon.rsrc
 
+# Replicant Deskbar (.so caricato dalla Deskbar). L'icona HVIF e' presa dal
+# MIME database a runtime. Il .so ha la SUA signature
+# (application/x-vnd.LocalSend-Deskbar) cosi' che la Deskbar possa archiviare
+# correttamente la view nel BShelf e ricaricare l'add-on al ripristino.
+$(REPLICANT_BIN): $(REPLICANT_SRC) src/replicant/Replicant.rdef
+	$(CXX) $(CXXFLAGS) -fPIC -shared -o $@ $(REPLICANT_SRC) -lbe -ltracker
+	rc -o replicant.rsrc src/replicant/Replicant.rdef
+	xres -o $@ replicant.rsrc
+	mimeset -f $@
+
 install-addon: addon
 	mkdir -p "/boot/home/config/non-packaged/add-ons/Tracker"
 	cp "Send with LocalSend" "/boot/home/config/non-packaged/add-ons/Tracker/"
@@ -85,7 +98,7 @@ install-addon: addon
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc test-receive-bin
+	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc $(REPLICANT_BIN) replicant.rsrc test-receive-bin
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
 # socket, compilabile e runnabile ovunque (non solo Haiku). Niente -lnetwork.
