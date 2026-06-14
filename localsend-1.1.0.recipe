@@ -3,7 +3,8 @@ DESCRIPTION="Native Haiku client for the LocalSend v2.1 protocol. Share \
 files and text messages over LAN with any device (Android, iOS, Windows, \
 macOS, Linux) running LocalSend, without internet and without third-party \
 servers. Includes a GUI application with device discovery, drag & drop, \
-transfer history, favorites, share-via-link, and a Tracker add-on."
+transfer history, favorites, share-via-link, a Tracker \"Send with \
+LocalSend\" add-on, and an optional Deskbar replicant for quick access."
 HOMEPAGE="https://github.com/atomozero/LocalSend"
 COPYRIGHT="2026 atomozero"
 LICENSE="MIT"
@@ -19,7 +20,6 @@ PROVIDES="
 	app:LocalSend = $portVersion
 	cmd:localsend_send = $portVersion
 	cmd:localsend_receive = $portVersion
-	addon:Send_with_LocalSend = $portVersion
 	"
 REQUIRES="
 	haiku
@@ -33,34 +33,34 @@ BUILD_REQUIRES="
 	devel:libssl
 	"
 BUILD_PREREQUIRES="
-	cmd:g++
-	cmd:gcc
+	cmd:g++$secondaryArchSuffix
 	cmd:make
-	cmd:rc
-	cmd:xres
 	"
 
 BUILD()
 {
-	make
+	make $jobArgs
 }
 
 INSTALL()
 {
-	# GUI application
+	# GUI application + Deskbar replicant (.so loaded by the Deskbar).
+	# The replicant binary must sit next to the app: at runtime the app
+	# resolves it relative to its own image path.
 	mkdir -p $appsDir
 	cp LocalSend $appsDir/LocalSend
+	cp LocalSendDeskbar $appsDir/LocalSendDeskbar
 
-	# CLI tools
+	# CLI tools.
 	mkdir -p $binDir
 	cp localsend-send $binDir/localsend-send
 	cp localsend-receive $binDir/localsend-receive
 
-	# Tracker add-on
+	# Tracker add-on: "Send with LocalSend" entry in the file context menu.
 	mkdir -p $addOnsDir/Tracker
 	cp "Send with LocalSend" "$addOnsDir/Tracker/Send with LocalSend"
 
-	# Deskbar link
+	# Deskbar launcher link.
 	addAppDeskbarSymlink $appsDir/LocalSend
 }
 

@@ -201,7 +201,7 @@ struct TransferHistory {
 		// Data/ora corrente.
 		time_t now = time(nullptr);
 		struct tm* t = localtime(&now);
-		char buf[32];
+		char buf[64];
 		snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
 			t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
 			t->tm_hour, t->tm_min);
@@ -369,7 +369,7 @@ public:
 	void SetFavorite(bool fav) { fFavorite = fav; }
 	bool IsFavorite() const { return fFavorite; }
 
-	virtual void DrawItem(BView* owner, BRect frame, bool complete)
+	virtual void DrawItem(BView* owner, BRect frame, bool /*complete*/)
 	{
 		rgb_color bgColor;
 		if (IsSelected())
@@ -457,7 +457,7 @@ public:
 		}
 	}
 
-	virtual void Update(BView* owner, const BFont* font)
+	virtual void Update(BView* owner, const BFont* /*font*/)
 	{
 		// Altezza fissa per ogni elemento.
 		SetHeight(48);
@@ -519,7 +519,7 @@ public:
 	}
 	void SetFingerprint(const char* fp) { fFingerprint = fp; Invalidate(); }
 
-	virtual void Draw(BRect updateRect)
+	virtual void Draw(BRect /*updateRect*/)
 	{
 		BRect bounds = Bounds();
 
@@ -2011,7 +2011,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 		}
 		html << "</body></html>";
 		return HttpServerResponse{200, "text/html; charset=utf-8",
-			html.String()};
+			html.String(), ""};
 	});
 
 	// Download del file.
