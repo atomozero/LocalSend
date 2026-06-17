@@ -4,7 +4,12 @@
 
 resource app_signature "application/x-vnd.LocalSend";
 
-resource app_flags B_SINGLE_LAUNCH;
+// B_BACKGROUND_APP: l'app non appare nel leaf menu della Deskbar (lista
+// dei programmi in esecuzione) ne' nel Twitcher. Necessario perche'
+// LocalSend continua a girare in background col solo replicant in vista,
+// e l'utente non deve vederla come "ancora aperta" dopo aver chiuso la
+// finestra. Le finestre normali continuano a comportarsi come sempre.
+resource app_flags B_SINGLE_LAUNCH | B_BACKGROUND_APP;
 
 resource app_version {
 	major  = 1,
