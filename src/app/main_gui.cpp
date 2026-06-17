@@ -89,7 +89,10 @@ enum {
 	kMsgShareLink		= 'SLNK',
 	kMsgStopShare		= 'SSHR',
 	kMsgAbout			= 'ABOU',
-	kMsgToggleDeskbar	= 'TDBR'
+	kMsgToggleDeskbar	= 'TDBR',
+	// Inviato dal replicant Deskbar (voce di menu destro "Quit"): chiede
+	// l'uscita vera, bypassando l'hide-on-close.
+	kMsgQuitFromTray	= 'QFTR'
 };
 
 
@@ -1036,6 +1039,10 @@ public:
 	void SetStatus(const char* text);
 	void AddPendingFiles(const std::vector<std::string>& paths);
 
+	// Permette al prossimo QuitRequested di chiudere davvero (saltando
+	// il pattern hide-on-close usato quando il replicant Deskbar e' presente).
+	void SetAllowQuit(bool v) { fAllowQuit = v; }
+
 private:
 	void SendToSelected();
 	void SendPendingOrBrowse();
@@ -1082,6 +1089,10 @@ private:
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
 	std::vector<DiscoveredDevice> fDevices;
+
+	// True quando l'app sta uscendo davvero (es. da "Quit" del replicant):
+	// QuitRequested deve chiudere invece di nascondere la finestra.
+	bool fAllowQuit = false;
 };
 
 
@@ -1776,6 +1787,17 @@ MainWindow::MessageReceived(BMessage* msg)
 bool
 MainWindow::QuitRequested()
 {
+	// Se l'utente ha installato il replicant Deskbar, la chiusura della
+	// finestra non termina l'app: nascondiamo la finestra e lasciamo
+	// vivi l'announcer multicast e il server di ricezione, cosi' il
+	// dispositivo continua ad essere visibile sulla LAN. Per uscire
+	// davvero serve "Quit" dal menu destro del replicant (kMsgQuitFromTray)
+	// o rimuovere prima il replicant dalle impostazioni.
+	if (!fAllowQuit && LocalSend::IsDeskbarItemInstalled()) {
+		Hide();
+		return false;
+	}
+
 	StopDownloadServer();
 	StopServer();
 	be_app->PostMessage(B_QUIT_REQUESTED);
@@ -2116,6 +2138,7 @@ public:
 	virtual void ReadyToRun();
 	virtual void ArgvReceived(int32 argc, char** argv);
 	virtual void RefsReceived(BMessage* msg);
+	virtual void MessageReceived(BMessage* msg);
 
 private:
 	void StartDiscoveryListener();
@@ -2196,6 +2219,39 @@ LocalSendApp::ArgvReceived(int32 argc, char** argv)
 			fWindow->UnlockLooper();
 		}
 	}
+}
+
+
+void
+LocalSendApp::MessageReceived(BMessage* msg)
+{
+	switch (msg->what) {
+		case B_SILENT_RELAUNCH:
+		{
+			// Click sul replicant Deskbar (o riavvio singolo): se la
+			// finestra esiste, riportala visibile e in primo piano.
+			if (fWindow != nullptr && fWindow->LockLooper()) {
+				if (fWindow->IsHidden())
+					fWindow->Show();
+				fWindow->Activate(true);
+				fWindow->UnlockLooper();
+			}
+			return;
+		}
+
+		case kMsgQuitFromTray:
+		{
+			// "Quit" dal menu destro del replicant: aggira l'hide-on-close
+			// abilitando la chiusura vera della finestra, poi termina l'app.
+			if (fWindow != nullptr && fWindow->LockLooper()) {
+				fWindow->SetAllowQuit(true);
+				fWindow->UnlockLooper();
+			}
+			PostMessage(B_QUIT_REQUESTED);
+			return;
+		}
+	}
+	BApplication::MessageReceived(msg);
 }
 
 

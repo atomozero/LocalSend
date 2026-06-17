@@ -6,9 +6,14 @@
 
 #include <Bitmap.h>
 #include <IconUtils.h>
+#include <MenuItem.h>
+#include <Message.h>
+#include <Messenger.h>
 #include <MimeType.h>
+#include <PopUpMenu.h>
 #include <Roster.h>
 #include <View.h>
+#include <Window.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +29,11 @@ static const char* kReplicantSignature = "application/x-vnd.LocalSend-Deskbar";
 static const char* kItemName = "LocalSendDeskbar";
 static const char* kClassName = "LocalSendDeskbarView";
 
+// Codici dei messaggi del menu contestuale (destro). 'QFTR' deve coincidere
+// con kMsgQuitFromTray gestito da LocalSendApp::MessageReceived.
+static const uint32 kMsgOpenApp = 'OPEN';
+static const uint32 kMsgQuitApp = 'QFTR';
+
 
 class LocalSendDeskbarView : public BView {
 public:
@@ -37,6 +47,7 @@ public:
 	virtual void AttachedToWindow();
 	virtual void Draw(BRect updateRect);
 	virtual void MouseDown(BPoint where);
+	virtual void MessageReceived(BMessage* message);
 	virtual void GetPreferredSize(float* width, float* height);
 
 private:
@@ -140,10 +151,11 @@ LocalSendDeskbarView::Draw(BRect)
 }
 
 
-void
-LocalSendDeskbarView::MouseDown(BPoint)
+static void
+BringAppToFront()
 {
-	// Click: porta in primo piano la GUI (la lancia se assente).
+	// Lancia la GUI se non e' in esecuzione; altrimenti chiede a quella
+	// gia' attiva di mostrare la finestra (gestito via B_SILENT_RELAUNCH).
 	if (be_roster->Launch(kAppSignature) == B_OK)
 		return;
 	BMessenger msgr(kAppSignature);
@@ -151,6 +163,58 @@ LocalSendDeskbarView::MouseDown(BPoint)
 		BMessage bring(B_SILENT_RELAUNCH);
 		msgr.SendMessage(&bring);
 	}
+}
+
+
+void
+LocalSendDeskbarView::MouseDown(BPoint where)
+{
+	// Bottone destro/centrale: menu contestuale con Apri / Esci.
+	BMessage* msg = Window() ? Window()->CurrentMessage() : nullptr;
+	int32 buttons = 0;
+	if (msg != nullptr)
+		msg->FindInt32("buttons", &buttons);
+
+	if (buttons & (B_SECONDARY_MOUSE_BUTTON | B_TERTIARY_MOUSE_BUTTON)) {
+		BPopUpMenu* menu = new BPopUpMenu("localsend-tray", false, false);
+		menu->SetAsyncAutoDestruct(true);
+		menu->AddItem(new BMenuItem("Open LocalSend",
+			new BMessage(kMsgOpenApp)));
+		menu->AddSeparatorItem();
+		menu->AddItem(new BMenuItem("Quit LocalSend",
+			new BMessage(kMsgQuitApp)));
+		menu->SetTargetForItems(BMessenger(this));
+
+		BPoint screenPoint = ConvertToScreen(where);
+		menu->Go(screenPoint, true, true, true);
+		return;
+	}
+
+	// Click sinistro: apri / porta in primo piano la GUI.
+	BringAppToFront();
+}
+
+
+void
+LocalSendDeskbarView::MessageReceived(BMessage* message)
+{
+	switch (message->what) {
+		case kMsgOpenApp:
+			BringAppToFront();
+			return;
+
+		case kMsgQuitApp:
+		{
+			// Inoltra all'app principale (gestito da LocalSendApp::MessageReceived).
+			BMessenger app(kAppSignature);
+			if (app.IsValid()) {
+				BMessage quit(kMsgQuitApp);
+				app.SendMessage(&quit);
+			}
+			return;
+		}
+	}
+	BView::MessageReceived(message);
 }
 
 
