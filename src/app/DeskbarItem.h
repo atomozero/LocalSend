@@ -24,6 +24,17 @@ status_t InstallDeskbarItem();
 // Rimuove l'icona dal Deskbar.
 status_t RemoveDeskbarItem();
 
+// --- Autostart al login ----------------------------------------------------
+//
+// Su Haiku gli script in ~/config/settings/boot/launch/ vengono eseguiti
+// dall'utente al login. Per il pattern "tray app" lanciamo l'eseguibile
+// con --background cosi' la finestra parte nascosta e l'utente la richiama
+// dal replicant.
+
+bool IsAutostartEnabled();
+status_t EnableAutostart();
+status_t DisableAutostart();
+
 } // namespace LocalSend
 
 #endif // _LOCALSEND_DESKBAR_ITEM_H

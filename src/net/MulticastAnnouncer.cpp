@@ -101,6 +101,27 @@ MulticastAnnouncer::Stop()
 
 
 void
+MulticastAnnouncer::TriggerBurst()
+{
+	// Annuncio extra fuori dal tick periodico: i peer gia' attivi
+	// rispondono in unicast in pochi ms, quindi la lista si popola
+	// senza attendere kAnnounceInterval. Safe da thread esterni:
+	// sendto e' atomico a livello kernel; fFd e' stabile tra Start/Stop.
+	if (!fRunning || fFd < 0)
+		return;
+	sockaddr_in groupAddr{};
+	groupAddr.sin_family = AF_INET;
+	groupAddr.sin_addr.s_addr = inet_addr(kMulticastGroup);
+	groupAddr.sin_port = htons(kDefaultPort);
+	JsonValue ann = fInfo.ToJson();
+	ann["announce"] = true;
+	std::string annMsg = ann.Dump();
+	sendto(fFd, annMsg.data(), annMsg.size(), 0,
+		(sockaddr*)&groupAddr, sizeof(groupAddr));
+}
+
+
+void
 MulticastAnnouncer::Run()
 {
 	sockaddr_in groupAddr{};
@@ -149,6 +170,23 @@ MulticastAnnouncer::Run()
 					&& msg.At("fingerprint").AsString()
 						== fInfo.fingerprint) {
 					continue;
+				}
+
+				// Notifica al consumatore (UI): peer sentito (annuncio o
+				// reply). Tutti i campi sono opzionali tranne fingerprint.
+				if (fPeerCb && msg.Has("alias")
+						&& msg.Has("fingerprint")) {
+					Peer p;
+					p.alias = msg.At("alias").AsString();
+					p.fingerprint = msg.At("fingerprint").AsString();
+					p.host = inet_ntoa(from.sin_addr);
+					p.port = msg.Has("port")
+						? static_cast<int>(msg.At("port").AsInt(kDefaultPort))
+						: kDefaultPort;
+					p.deviceType = msg.Has("deviceType")
+						? msg.At("deviceType").AsString()
+						: std::string("unknown");
+					fPeerCb(p);
 				}
 
 				// Se e' un annuncio (announce=true), rispondi con

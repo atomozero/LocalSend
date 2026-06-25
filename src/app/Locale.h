@@ -72,6 +72,7 @@ enum StringId {
 	S_INTEGRATION,
 	S_ADD_TO_DESKBAR,
 	S_REMOVE_FROM_DESKBAR,
+	S_REFRESH,
 	// Fine
 	S_COUNT
 };
@@ -462,6 +463,13 @@ static const char* sStrings[S_COUNT][kLangCount] = {
 	  "Deskbar\xe3\x81\x8b\xe3\x82\x89\xe5\x89\x8a\xe9\x99\xa4", // Deskbarから削除
 	  "\xe4\xbb\x8e Deskbar \xe7\xa7\xbb\xe9\x99\xa4", // 从 Deskbar 移除
 	  "Quitar del Deskbar" },
+
+	// S_REFRESH
+	{ "Aggiorna",
+	  "Refresh",
+	  "\xe6\x9b\xb4\xe6\x96\xb0", // 更新
+	  "\xe5\x88\xb7\xe6\x96\xb0", // 刷新
+	  "Actualizar" },
 };
 
 static Language sCurrentLang = kLangItalian;

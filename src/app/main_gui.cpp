@@ -32,6 +32,7 @@
 #include <Notification.h>
 #include <PopUpMenu.h>
 #include <Path.h>
+#include <MessageRunner.h>
 #include <Region.h>
 #include <ScrollView.h>
 #include <SeparatorView.h>
@@ -92,7 +93,16 @@ enum {
 	kMsgToggleDeskbar	= 'TDBR',
 	// Inviato dal replicant Deskbar (voce di menu destro "Quit"): chiede
 	// l'uscita vera, bypassando l'hide-on-close.
-	kMsgQuitFromTray	= 'QFTR'
+	kMsgQuitFromTray	= 'QFTR',
+	// Tick periodico del BMessageRunner: rimuove i peer non sentiti
+	// da troppo tempo (TTL "last-seen").
+	kMsgPruneDevices	= 'PRUN',
+	// Pulsante Refresh nella UI: forza un annuncio extra cosi' i peer
+	// rispondono in unicast e la lista si rinfresca subito.
+	kMsgRefreshDevices	= 'RFSH',
+	// Inviato da MainWindow a LocalSendApp per chiedere all'announcer
+	// di sparare un burst (l'announcer e' di proprieta' dell'app).
+	kMsgTriggerBurst	= 'BURS'
 };
 
 
@@ -106,6 +116,11 @@ struct AppSettings {
 	bool quickSave = false;
 	bool https = true;
 	std::string language;
+	// True quando l'utente ha installato il replicant nella Deskbar.
+	// Persistito perche' la Deskbar non sempre rigenera lo shelf al boot:
+	// se il flag e' true e il replicant manca all'avvio dell'app, lo
+	// re-installiamo noi.
+	bool deskbarItem = false;
 
 	void DetectSystemLanguage()
 	{
@@ -148,6 +163,7 @@ struct AppSettings {
 			else if (key == "pin") pin = val;
 			else if (key == "quickSave") quickSave = (val == "1");
 			else if (key == "https") https = (val == "1");
+			else if (key == "deskbarItem") deskbarItem = (val == "1");
 			else if (key == "language") {
 				language = val;
 				hasLang = true;
@@ -170,6 +186,7 @@ struct AppSettings {
 		fprintf(f, "pin=%s\n", pin.c_str());
 		fprintf(f, "quickSave=%d\n", quickSave ? 1 : 0);
 		fprintf(f, "https=%d\n", https ? 1 : 0);
+		fprintf(f, "deskbarItem=%d\n", deskbarItem ? 1 : 0);
 		fprintf(f, "language=%s\n", language.c_str());
 		fclose(f);
 	}
@@ -340,7 +357,19 @@ struct DiscoveredDevice {
 	int port;
 	std::string deviceType;
 	std::string fingerprint;
+	// Ultima volta che ne abbiamo sentito parlare (annuncio o reply).
+	// Aggiornato a ogni pacchetto multicast/unicast valido del peer; il
+	// pruning periodico (kMsgPruneDevices) rimuove chi non si fa sentire
+	// da kDeviceTimeoutSeconds.
+	time_t lastSeen = 0;
 };
+
+// TTL: un peer non sentito da N secondi e' considerato offline.
+// Tre tick di annuncio (3*5s) + un piccolo cuscinetto coprono jitter / pacchetti
+// persi senza far sparire un peer ancora vivo.
+static const int kDeviceTimeoutSeconds = 20;
+// Cadenza del pruning periodico.
+static const int kDevicePruneIntervalSeconds = 5;
 
 
 // --- Richiesta in arrivo (dal server thread alla GUI) ----------------------
@@ -359,17 +388,19 @@ struct IncomingRequest {
 class DeviceListItem : public BListItem {
 public:
 	DeviceListItem(const char* name, const char* type, const char* ip,
-		bool favorite = false)
+		const char* fingerprint, bool favorite = false)
 		:
 		BListItem(),
 		fName(name),
 		fType(type),
 		fIp(ip),
+		fFingerprintId(fingerprint != NULL ? fingerprint : ""),
 		fFavorite(favorite)
 	{
 	}
 
 	void SetFavorite(bool fav) { fFavorite = fav; }
+	const BString& FingerprintId() const { return fFingerprintId; }
 	bool IsFavorite() const { return fFavorite; }
 
 	virtual void DrawItem(BView* owner, BRect frame, bool /*complete*/)
@@ -473,6 +504,9 @@ private:
 	BString fName;
 	BString fType;
 	BString fIp;
+	// Fingerprint del peer: chiave usata per ritrovare l'item da rimuovere
+	// quando il pruning per TTL espelle un dispositivo offline.
+	BString fFingerprintId;
 	bool fFavorite;
 };
 
@@ -932,9 +966,29 @@ public:
 				} else {
 					err = InstallDeskbarItem();
 				}
-				fDeskbarBtn->SetLabel(IsDeskbarItemInstalled()
+				bool installed = IsDeskbarItemInstalled();
+				fDeskbarBtn->SetLabel(installed
 					? Tr(S_REMOVE_FROM_DESKBAR)
 					: Tr(S_ADD_TO_DESKBAR));
+				// Persisti subito la scelta: la Deskbar non garantisce
+				// la rigenerazione del replicant al boot, quindi al
+				// prossimo avvio dell'app lo re-installeremo da soli
+				// se questo flag e' true.
+				if (fSettings->deskbarItem != installed) {
+					fSettings->deskbarItem = installed;
+					fSettings->Save(kSettingsFile);
+				}
+				// Autostart al login agganciato al replicant: per essere
+				// "tray app" davvero, l'app deve partire da sola al boot
+				// (l'auto-restore del replicant agisce solo se l'app gira).
+				// Errore non bloccante: solo log.
+				status_t asErr = installed
+					? EnableAutostart() : DisableAutostart();
+				if (asErr != B_OK) {
+					fprintf(stderr,
+						"[autostart] toggle fallito: %s (%ld)\n",
+						strerror(asErr), (long)asErr);
+				}
 				if (err != B_OK) {
 					char buf[256];
 					snprintf(buf, sizeof(buf),
@@ -1052,6 +1106,8 @@ private:
 		const std::vector<std::string>& paths);
 	void StartDownloadServer(const std::vector<std::string>& files);
 	void StopDownloadServer();
+	// Rimuove peer non sentiti da kDeviceTimeoutSeconds (UI-thread).
+	void PruneStaleDevices();
 
 	DeviceInfo* fInfo;
 	AppSettings* fSettings;
@@ -1093,12 +1149,15 @@ private:
 	// True quando l'app sta uscendo davvero (es. da "Quit" del replicant):
 	// QuitRequested deve chiudere invece di nascondere la finestra.
 	bool fAllowQuit = false;
+
+	// Timer periodico: posta kMsgPruneDevices ogni kDevicePruneIntervalSeconds.
+	BMessageRunner* fPruneRunner = nullptr;
 };
 
 
 MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	:
-	BWindow(BRect(100, 100, 550, 480), "LocalSend",
+	BWindow(BRect(100, 100, 590, 480), "LocalSend",
 		B_TITLED_WINDOW,
 		B_ASYNCHRONOUS_CONTROLS | B_QUIT_ON_WINDOW_CLOSE
 			| B_AUTO_UPDATE_SIZE_LIMITS),
@@ -1123,12 +1182,15 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	BScrollView* scroll = new BScrollView("scroll", fDeviceList,
 		0, false, true, B_NO_BORDER);
 
-	// Etichetta sezione dispositivi.
+	// Etichetta sezione dispositivi + pulsante Refresh.
 	BStringView* devLabel = new BStringView("devlabel",
 		Tr(S_DEVICES_IN_NETWORK));
 	BFont labelFont(be_bold_font);
 	labelFont.SetSize(be_plain_font->Size());
 	devLabel->SetFont(&labelFont);
+	BButton* refreshBtn = new BButton("refresh", Tr(S_REFRESH),
+		new BMessage(kMsgRefreshDevices));
+	refreshBtn->SetExplicitMinSize(BSize(B_SIZE_UNSET, B_SIZE_UNSET));
 
 	// Barra di progresso.
 	fProgressBar = new BStatusBar("progress");
@@ -1153,7 +1215,11 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 		.Add(fHeader)
 		.AddGroup(B_VERTICAL, B_USE_HALF_ITEM_SPACING)
 			.SetInsets(B_USE_WINDOW_INSETS)
-			.Add(devLabel)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(devLabel)
+				.AddGlue()
+				.Add(refreshBtn, 0.0)
+			.End()
 			.Add(scroll, 1.0)
 			.Add(fProgressBar)
 			.AddStrut(B_USE_HALF_ITEM_SPACING)
@@ -1175,11 +1241,18 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 
 	SetSizeLimits(380, B_SIZE_UNLIMITED, 300, B_SIZE_UNLIMITED);
 	CenterOnScreen();
+
+	// Pruning periodico per il TTL "last-seen": ogni kDevicePruneIntervalSeconds
+	// la window riceve kMsgPruneDevices e rimuove i peer scaduti.
+	BMessage prune(kMsgPruneDevices);
+	fPruneRunner = new BMessageRunner(BMessenger(this), &prune,
+		(bigtime_t)kDevicePruneIntervalSeconds * 1000000LL);
 }
 
 
 MainWindow::~MainWindow()
 {
+	delete fPruneRunner;
 	StopServer();
 	delete fFilePanel;
 }
@@ -1382,14 +1455,22 @@ MainWindow::StopServer()
 void
 MainWindow::AddDevice(const DiscoveredDevice& dev)
 {
-	// Copia locale per evitare problemi di lifetime con il thread
-	// di discovery.
+	// Chiamato dal thread del MulticastAnnouncer per ogni peer sentito
+	// (annuncio o reply). Se gia' presente aggiorniamo solo lastSeen
+	// per evitare che il pruning per TTL lo espella; se nuovo postiamo
+	// il messaggio alla UI per crearne l'item nella BListView.
 	DiscoveredDevice copy = dev;
+	copy.lastSeen = time(nullptr);
 
 	std::lock_guard<std::mutex> lock(fDevicesMtx);
-	for (const auto& d : fDevices) {
-		if (d.fingerprint == copy.fingerprint)
+	for (auto& d : fDevices) {
+		if (d.fingerprint == copy.fingerprint) {
+			d.lastSeen = copy.lastSeen;
+			// Host puo' cambiare (DHCP): tienilo aggiornato.
+			d.host = copy.host;
+			d.port = copy.port;
 			return;
+		}
 	}
 	fDevices.push_back(copy);
 
@@ -1399,6 +1480,43 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	msg.AddString("ip", copy.host.c_str());
 	msg.AddString("fingerprint", copy.fingerprint.c_str());
 	PostMessage(&msg);
+}
+
+
+void
+MainWindow::PruneStaleDevices()
+{
+	// Esegue il TTL: rimuove dalla lista interna e dalla BListView i peer
+	// non sentiti da kDeviceTimeoutSeconds. Eseguito dal looper della
+	// window (post kMsgPruneDevices da MessageRunner), quindi UI-thread.
+	time_t cutoff = time(nullptr) - kDeviceTimeoutSeconds;
+	std::vector<std::string> dropped;
+	{
+		std::lock_guard<std::mutex> lock(fDevicesMtx);
+		for (auto it = fDevices.begin(); it != fDevices.end();) {
+			if (it->lastSeen != 0 && it->lastSeen < cutoff) {
+				dropped.push_back(it->fingerprint);
+				it = fDevices.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
+	if (dropped.empty())
+		return;
+
+	// Rimuovi gli item corrispondenti dalla BListView (chiave: fingerprint).
+	for (const auto& fp : dropped) {
+		for (int32 i = fDeviceList->CountItems() - 1; i >= 0; i--) {
+			DeviceListItem* item
+				= dynamic_cast<DeviceListItem*>(fDeviceList->ItemAt(i));
+			if (item != nullptr && item->FingerprintId() == fp.c_str()) {
+				fDeviceList->RemoveItem(i);
+				delete item;
+				break;
+			}
+		}
+	}
 }
 
 
@@ -1477,6 +1595,15 @@ MainWindow::MessageReceived(BMessage* msg)
 			SendToSelected();
 			break;
 
+		case kMsgPruneDevices:
+			PruneStaleDevices();
+			break;
+
+		case kMsgRefreshDevices:
+			// Inoltra all'app: l'announcer e' di sua proprieta'.
+			be_app->PostMessage(kMsgTriggerBurst);
+			break;
+
 		case kMsgFileSelected:
 		{
 			entry_ref ref;
@@ -1543,7 +1670,7 @@ MainWindow::MessageReceived(BMessage* msg)
 				bool fav = fp ? fFavorites.Contains(fp) : false;
 				fDeviceList->AddItem(new DeviceListItem(
 					alias, type ? type : "", ip ? ip : "",
-					fav));
+					fp ? fp : "", fav));
 			}
 			break;
 		}
@@ -2140,16 +2267,18 @@ public:
 	virtual void RefsReceived(BMessage* msg);
 	virtual void MessageReceived(BMessage* msg);
 
-private:
-	void StartDiscoveryListener();
+	// Settato da main() prima di Run() quando l'app e' lanciata con
+	// --background (es. dall'autostart al login): la finestra parte
+	// nascosta, solo il replicant Deskbar e' visibile.
+	void SetStartHidden(bool v) { fStartHidden = v; }
 
+private:
 	AppSettings fSettings;
 	DeviceInfo fInfo;
 	TlsIdentity fTls;
 	MulticastAnnouncer* fAnnouncer;
 	MainWindow* fWindow;
-	std::thread fDiscoveryThread;
-	bool fDiscoveryRunning;
+	bool fStartHidden = false;
 };
 
 
@@ -2157,8 +2286,7 @@ LocalSendApp::LocalSendApp()
 	:
 	BApplication("application/x-vnd.LocalSend"),
 	fAnnouncer(nullptr),
-	fWindow(nullptr),
-	fDiscoveryRunning(false)
+	fWindow(nullptr)
 {
 	fSettings.Load(kSettingsFile);
 	fTls = CreateSelfSignedTls("localsend");
@@ -2172,9 +2300,6 @@ LocalSendApp::LocalSendApp()
 
 LocalSendApp::~LocalSendApp()
 {
-	fDiscoveryRunning = false;
-	if (fDiscoveryThread.joinable())
-		fDiscoveryThread.join();
 	delete fAnnouncer;
 	FreeTlsIdentity(fTls);
 }
@@ -2194,12 +2319,43 @@ LocalSendApp::ReadyToRun()
 
 	fWindow = new MainWindow(&fInfo, &fSettings);
 	fWindow->StartServer(fTls.ctx);
+	// In modalita' --background partiamo con la finestra nascosta:
+	// solo l'icona del replicant e' visibile, il server di ricezione
+	// e' attivo, l'utente apre la GUI cliccando il replicant.
+	if (fStartHidden)
+		fWindow->Hide();
 	fWindow->Show();
 
 	fAnnouncer = new MulticastAnnouncer(fInfo);
+	// Callback dal thread dell'announcer: confezioniamo un DiscoveredDevice
+	// e lo passiamo alla MainWindow (che lockera' il suo mutex interno).
+	// PostMessage e' thread-safe, ma AddDevice fa di piu' (dedup + update
+	// lastSeen): tiene il proprio lock.
+	fAnnouncer->SetPeerHeardCallback(
+		[this](const MulticastAnnouncer::Peer& p) {
+			if (fWindow == nullptr)
+				return;
+			DiscoveredDevice dev;
+			dev.alias = p.alias;
+			dev.host = p.host;
+			dev.port = p.port;
+			dev.deviceType = p.deviceType;
+			dev.fingerprint = p.fingerprint;
+			fWindow->AddDevice(dev);
+		});
 	fAnnouncer->Start();
 
-	StartDiscoveryListener();
+	// Ripristino del replicant Deskbar: la Deskbar non sempre rigenera lo
+	// shelf al reboot, quindi se l'utente l'aveva installato (flag in
+	// settings) e ora manca, lo reinstalliamo silenziosamente. Errori
+	// non bloccanti: solo log su stderr.
+	if (fSettings.deskbarItem && !LocalSend::IsDeskbarItemInstalled()) {
+		status_t err = LocalSend::InstallDeskbarItem();
+		if (err != B_OK) {
+			fprintf(stderr, "[deskbar] auto-restore fallito: %s (%ld)\n",
+				strerror(err), (long)err);
+		}
+	}
 }
 
 
@@ -2236,6 +2392,21 @@ LocalSendApp::MessageReceived(BMessage* msg)
 				fWindow->Activate(true);
 				fWindow->UnlockLooper();
 			}
+			// Riportare a video la finestra dopo background e' anche
+			// un buon momento per ri-scoprire chi c'e' in rete: gli
+			// announce periodici da 5s sembrano eterni in questo caso.
+			if (fAnnouncer != nullptr)
+				fAnnouncer->TriggerBurst();
+			return;
+		}
+
+		case kMsgTriggerBurst:
+		{
+			// Pulsante Refresh nella UI: l'announcer fa scattare un
+			// annuncio extra, i peer attivi rispondono in unicast e
+			// la lista si popola in pochi ms.
+			if (fAnnouncer != nullptr)
+				fAnnouncer->TriggerBurst();
 			return;
 		}
 
@@ -2274,81 +2445,18 @@ LocalSendApp::RefsReceived(BMessage* msg)
 }
 
 
-void
-LocalSendApp::StartDiscoveryListener()
-{
-	fDiscoveryRunning = true;
-	fDiscoveryThread = std::thread([this]() {
-		int fd = socket(AF_INET, SOCK_DGRAM, 0);
-		if (fd < 0)
-			return;
-
-		int yes = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-
-		sockaddr_in addr{};
-		addr.sin_family = AF_INET;
-		addr.sin_addr.s_addr = htonl(INADDR_ANY);
-		addr.sin_port = htons(kDefaultPort + 1);
-
-		if (bind(fd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-			close(fd);
-			return;
-		}
-
-		ip_mreq mreq{};
-		mreq.imr_multiaddr.s_addr = inet_addr(kMulticastGroup);
-		mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-		setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
-
-		timeval tv{};
-		tv.tv_sec = 2;
-		tv.tv_usec = 0;
-		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-		while (fDiscoveryRunning) {
-			char buf[2048];
-			sockaddr_in from{};
-			socklen_t fromLen = sizeof(from);
-			ssize_t n = recvfrom(fd, buf, sizeof(buf) - 1, 0,
-				(sockaddr*)&from, &fromLen);
-			if (n <= 0)
-				continue;
-			buf[n] = 0;
-
-			try {
-				JsonValue msg = JsonValue::Parse(std::string(buf, n));
-				if (!msg.Has("alias") || !msg.Has("fingerprint"))
-					continue;
-				if (msg.At("fingerprint").AsString() == fInfo.fingerprint)
-					continue;
-
-				DiscoveredDevice dev;
-				dev.alias = msg.At("alias").AsString();
-				dev.fingerprint = msg.At("fingerprint").AsString();
-				dev.host = inet_ntoa(from.sin_addr);
-				dev.port = msg.Has("port")
-					? static_cast<int>(msg.At("port").AsInt(kDefaultPort))
-					: kDefaultPort;
-				dev.deviceType = msg.Has("deviceType")
-					? msg.At("deviceType").AsString() : "unknown";
-
-				if (fWindow && !dev.fingerprint.empty())
-					fWindow->AddDevice(dev);
-			} catch (...) {
-			}
-		}
-		close(fd);
-	});
-}
-
-
 // --- main ------------------------------------------------------------------
 
 int
-main()
+main(int argc, char** argv)
 {
+	bool startHidden = false;
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--background") == 0)
+			startHidden = true;
+	}
 	LocalSendApp app;
+	app.SetStartHidden(startHidden);
 	app.Run();
 	return 0;
 }
