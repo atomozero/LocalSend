@@ -73,6 +73,9 @@ enum StringId {
 	S_ADD_TO_DESKBAR,
 	S_REMOVE_FROM_DESKBAR,
 	S_REFRESH,
+	S_COPY,
+	S_OPEN_IN_EDITOR,
+	S_SAVE_TO_FILE,
 	// Fine
 	S_COUNT
 };
@@ -470,6 +473,27 @@ static const char* sStrings[S_COUNT][kLangCount] = {
 	  "\xe6\x9b\xb4\xe6\x96\xb0", // 更新
 	  "\xe5\x88\xb7\xe6\x96\xb0", // 刷新
 	  "Actualizar" },
+
+	// S_COPY
+	{ "Copia",
+	  "Copy",
+	  "\xe3\x82\xb3\xe3\x83\x94\xe3\x83\xbc", // コピー
+	  "\xe5\xa4\x8d\xe5\x88\xb6", // 复制
+	  "Copiar" },
+
+	// S_OPEN_IN_EDITOR
+	{ "Apri nell'editor",
+	  "Open in editor",
+	  "\xe3\x82\xa8\xe3\x83\x87\xe3\x82\xa3\xe3\x82\xbf\xe3\x83\xbc\xe3\x81\xa7\xe9\x96\x8b\xe3\x81\x8f", // エディターで開く
+	  "\xe5\x9c\xa8\xe7\xbc\x96\xe8\xbe\x91\xe5\x99\xa8\xe4\xb8\xad\xe6\x89\x93\xe5\xbc\x80", // 在编辑器中打开
+	  "Abrir en editor" },
+
+	// S_SAVE_TO_FILE
+	{ "Salva su file",
+	  "Save to file",
+	  "\xe3\x83\x95\xe3\x82\xa1\xe3\x82\xa4\xe3\x83\xab\xe3\x81\xab\xe4\xbf\x9d\xe5\xad\x98", // ファイルに保存
+	  "\xe4\xbf\x9d\xe5\xad\x98\xe5\x88\xb0\xe6\x96\x87\xe4\xbb\xb6", // 保存到文件
+	  "Guardar en archivo" },
 };
 
 static Language sCurrentLang = kLangItalian;

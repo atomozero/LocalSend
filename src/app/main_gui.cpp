@@ -103,7 +103,12 @@ enum {
 	kMsgRefreshDevices	= 'RFSH',
 	// Inviato da MainWindow a LocalSendApp per chiedere all'announcer
 	// di sparare un burst (l'announcer e' di proprieta' dell'app).
-	kMsgTriggerBurst	= 'BURS'
+	kMsgTriggerBurst	= 'BURS',
+	// Pulsanti del dialog "Testo ricevuto".
+	kMsgTxRxCopy		= 'TXCP',
+	kMsgTxRxOpen		= 'TXOP',
+	kMsgTxRxSave		= 'TXSV',
+	kMsgTxRxSaveTo		= 'TXST'
 };
 
 
@@ -783,6 +788,158 @@ private:
 	BString fPeer;
 	BString fDate;
 	long long fSize;
+};
+
+
+// --- TextReceivedWindow ----------------------------------------------------
+//
+// Dialog per un messaggio di testo in arrivo. Sostituisce il BAlert
+// precedente perche' BAlert cappa a 3 pulsanti e ci servono 4 azioni:
+// Salva su file, Apri nell'editor, Copia negli appunti, Chiudi.
+
+class TextReceivedWindow : public BWindow {
+public:
+	TextReceivedWindow(const BString& title, const char* text)
+		:
+		BWindow(BRect(140, 140, 640, 460), title.String(),
+			B_TITLED_WINDOW,
+			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
+				| B_CLOSE_ON_ESCAPE),
+		fText(text != NULL ? text : ""),
+		fSavePanel(nullptr)
+	{
+		BTextView* view = new BTextView("text");
+		view->SetText(fText.String());
+		view->MakeEditable(false);
+		view->SetWordWrap(true);
+		view->SetInsets(6, 6, 6, 6);
+		view->SetStylable(false);
+		BScrollView* scroll = new BScrollView("tscroll", view,
+			0, false, true, B_NO_BORDER);
+
+		BButton* saveBtn = new BButton(Tr(S_SAVE_TO_FILE),
+			new BMessage(kMsgTxRxSave));
+		BButton* openBtn = new BButton(Tr(S_OPEN_IN_EDITOR),
+			new BMessage(kMsgTxRxOpen));
+		BButton* copyBtn = new BButton(Tr(S_COPY),
+			new BMessage(kMsgTxRxCopy));
+		BButton* closeBtn = new BButton(Tr(S_OK),
+			new BMessage(B_QUIT_REQUESTED));
+		closeBtn->MakeDefault(true);
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(scroll, 1.0)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(saveBtn)
+				.Add(openBtn)
+				.AddGlue()
+				.Add(copyBtn)
+				.Add(closeBtn)
+			.End()
+		.End();
+
+		CenterOnScreen();
+	}
+
+	virtual ~TextReceivedWindow()
+	{
+		delete fSavePanel;
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		switch (msg->what) {
+			case kMsgTxRxCopy:
+				CopyToClipboard();
+				PostMessage(B_QUIT_REQUESTED);
+				break;
+
+			case kMsgTxRxOpen:
+				OpenInEditor();
+				PostMessage(B_QUIT_REQUESTED);
+				break;
+
+			case kMsgTxRxSave:
+			{
+				if (fSavePanel == nullptr) {
+					fSavePanel = new BFilePanel(B_SAVE_PANEL,
+						new BMessenger(this), NULL, 0, false,
+						new BMessage(kMsgTxRxSaveTo));
+					fSavePanel->SetSaveText("message.txt");
+				}
+				fSavePanel->Show();
+				break;
+			}
+
+			case kMsgTxRxSaveTo:
+			{
+				entry_ref dir;
+				const char* name = nullptr;
+				if (msg->FindRef("directory", &dir) == B_OK
+						&& msg->FindString("name", &name) == B_OK) {
+					BPath dirPath(&dir);
+					BString path(dirPath.Path());
+					path << "/" << name;
+					BFile out(path.String(),
+						B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+					if (out.InitCheck() == B_OK)
+						out.Write(fText.String(), fText.Length());
+				}
+				PostMessage(B_QUIT_REQUESTED);
+				break;
+			}
+
+			default:
+				BWindow::MessageReceived(msg);
+		}
+	}
+
+private:
+	void CopyToClipboard()
+	{
+		if (be_clipboard->Lock()) {
+			be_clipboard->Clear();
+			BMessage* clip = be_clipboard->Data();
+			if (clip != NULL) {
+				clip->AddData("text/plain", B_MIME_TYPE,
+					fText.String(), fText.Length());
+			}
+			be_clipboard->Commit();
+			be_clipboard->Unlock();
+		}
+	}
+
+	void OpenInEditor()
+	{
+		BPath tmpDir;
+		if (find_directory(B_SYSTEM_TEMP_DIRECTORY, &tmpDir) != B_OK)
+			tmpDir.SetTo("/tmp");
+		char pathBuf[B_PATH_NAME_LENGTH];
+		snprintf(pathBuf, sizeof(pathBuf),
+			"%s/localsend-message-XXXXXX", tmpDir.Path());
+		int fd = mkstemp(pathBuf);
+		if (fd < 0)
+			return;
+		write(fd, fText.String(), fText.Length());
+		close(fd);
+		std::string finalPath = std::string(pathBuf) + ".txt";
+		rename(pathBuf, finalPath.c_str());
+
+		entry_ref ref;
+		if (get_ref_for_path(finalPath.c_str(), &ref) != B_OK)
+			return;
+		BMessage refs(B_REFS_RECEIVED);
+		refs.AddRef("refs", &ref);
+		// Prova StyledEdit; fallback al preferred handler di text/plain.
+		if (be_roster->Launch("application/x-vnd.Haiku-StyledEdit", &refs)
+				!= B_OK) {
+			be_roster->Launch(&ref);
+		}
+	}
+
+	BString fText;
+	BFilePanel* fSavePanel;
 };
 
 
@@ -1900,66 +2057,10 @@ MainWindow::MessageReceived(BMessage* msg)
 
 				fHeader->SetStatus(title.String(), true, false);
 
-				// Tre pulsanti: OK (destra, default), Copia, Apri nell'editor.
-				// BAlert dispone i bottoni da destra a sinistra: button 0 e'
-				// il piu' a destra (OK/default), 1 al centro, 2 a sinistra.
-				BAlert* alert = new BAlert(title.String(),
-					text, Tr(S_OK), Tr(S_COPY), Tr(S_OPEN_IN_EDITOR),
-					B_WIDTH_AS_USUAL, B_INFO_ALERT);
-				alert->SetShortcut(0, B_ENTER);
-				int32 choice = alert->Go();
-
-				if (choice == 1) {
-					// Copia negli appunti (formato text/plain).
-					if (be_clipboard->Lock()) {
-						be_clipboard->Clear();
-						BMessage* clip = be_clipboard->Data();
-						if (clip != NULL) {
-							clip->AddData("text/plain", B_MIME_TYPE,
-								text, strlen(text));
-						}
-						be_clipboard->Commit();
-						be_clipboard->Unlock();
-					}
-				} else if (choice == 2) {
-					// Scrive il testo in un file temporaneo e lo apre con
-					// StyledEdit (o l'editor associato a text/plain nel
-					// MIME DB, se StyledEdit non c'e'). Il file resta a
-					// disposizione dell'utente: puo' salvarlo altrove
-					// o chiuderlo senza salvare.
-					BPath tmpDir;
-					if (find_directory(B_SYSTEM_TEMP_DIRECTORY, &tmpDir)
-							!= B_OK) {
-						tmpDir.SetTo("/tmp");
-					}
-					char pathBuf[B_PATH_NAME_LENGTH];
-					snprintf(pathBuf, sizeof(pathBuf),
-						"%s/localsend-message-XXXXXX",
-						tmpDir.Path());
-					int fd = mkstemp(pathBuf);
-					if (fd >= 0) {
-						write(fd, text, strlen(text));
-						close(fd);
-						// Rinomina con .txt cosi' StyledEdit lo apre come
-						// testo e l'utente lo riconosce nel file panel.
-						std::string finalPath = std::string(pathBuf) + ".txt";
-						rename(pathBuf, finalPath.c_str());
-
-						entry_ref ref;
-						if (get_ref_for_path(finalPath.c_str(), &ref)
-								== B_OK) {
-							BMessage refs(B_REFS_RECEIVED);
-							refs.AddRef("refs", &ref);
-							// Prova prima con StyledEdit; se non c'e',
-							// fallback al preferred handler di text/plain.
-							if (be_roster->Launch(
-									"application/x-vnd.Haiku-StyledEdit",
-									&refs) != B_OK) {
-								be_roster->Launch(&ref);
-							}
-						}
-					}
-				}
+				// Finestra dedicata (non modale) con quattro azioni:
+				// Salva su file, Apri nell'editor, Copia, Chiudi.
+				TextReceivedWindow* w = new TextReceivedWindow(title, text);
+				w->Show();
 
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
