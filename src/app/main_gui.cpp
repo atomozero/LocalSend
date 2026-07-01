@@ -16,6 +16,7 @@
 #include <CheckBox.h>
 #include <Clipboard.h>
 #include <File.h>
+#include <FindDirectory.h>
 #include <IconUtils.h>
 #include <Resources.h>
 #include <Roster.h>
@@ -1494,17 +1495,25 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	DiscoveredDevice copy = dev;
 	copy.lastSeen = time(nullptr);
 
-	std::lock_guard<std::mutex> lock(fDevicesMtx);
-	for (auto& d : fDevices) {
-		if (d.fingerprint == copy.fingerprint) {
-			d.lastSeen = copy.lastSeen;
-			// Host puo' cambiare (DHCP): tienilo aggiornato.
-			d.host = copy.host;
-			d.port = copy.port;
-			return;
+	bool isNew = true;
+	{
+		std::lock_guard<std::mutex> lock(fDevicesMtx);
+		for (auto& d : fDevices) {
+			if (d.fingerprint == copy.fingerprint) {
+				d.lastSeen = copy.lastSeen;
+				// Host puo' cambiare (DHCP): tienilo aggiornato.
+				d.host = copy.host;
+				d.port = copy.port;
+				isNew = false;
+				break;
+			}
 		}
+		if (isNew)
+			fDevices.push_back(copy);
 	}
-	fDevices.push_back(copy);
+
+	if (!isNew)
+		return;
 
 	BMessage msg(kMsgDeviceFound);
 	msg.AddString("alias", copy.alias.c_str());
@@ -1512,6 +1521,22 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	msg.AddString("ip", copy.host.c_str());
 	msg.AddString("fingerprint", copy.fingerprint.c_str());
 	PostMessage(&msg);
+
+	// Registrazione reciproca: appena scopriamo un peer, gli POSTiamo il
+	// nostro DeviceInfo su /api/localsend/v2/register. Cosi' anche i client
+	// che ascoltano soltanto (mai un annuncio multicast) ci vedono subito
+	// nella loro lista, senza aspettare l'inversione di flusso. Fire &
+	// forget in un thread detached: la POST puo' bloccare qualche secondo
+	// su TLS handshake e non deve congelare la UI.
+	std::string host = copy.host;
+	int port = copy.port;
+	std::string myInfo = fInfo->ToJson().Dump();
+	std::thread([host, port, myInfo]() {
+		SocketHttpClient client;
+		client.EnableTls();
+		client.Post(host, port, kApiRegister,
+			"application/json", myInfo);
+	}).detach();
 }
 
 
@@ -1875,11 +1900,66 @@ MainWindow::MessageReceived(BMessage* msg)
 
 				fHeader->SetStatus(title.String(), true, false);
 
+				// Tre pulsanti: OK (destra, default), Copia, Apri nell'editor.
+				// BAlert dispone i bottoni da destra a sinistra: button 0 e'
+				// il piu' a destra (OK/default), 1 al centro, 2 a sinistra.
 				BAlert* alert = new BAlert(title.String(),
-					text, Tr(S_OK), NULL, NULL,
+					text, Tr(S_OK), Tr(S_COPY), Tr(S_OPEN_IN_EDITOR),
 					B_WIDTH_AS_USUAL, B_INFO_ALERT);
 				alert->SetShortcut(0, B_ENTER);
-				alert->Go();
+				int32 choice = alert->Go();
+
+				if (choice == 1) {
+					// Copia negli appunti (formato text/plain).
+					if (be_clipboard->Lock()) {
+						be_clipboard->Clear();
+						BMessage* clip = be_clipboard->Data();
+						if (clip != NULL) {
+							clip->AddData("text/plain", B_MIME_TYPE,
+								text, strlen(text));
+						}
+						be_clipboard->Commit();
+						be_clipboard->Unlock();
+					}
+				} else if (choice == 2) {
+					// Scrive il testo in un file temporaneo e lo apre con
+					// StyledEdit (o l'editor associato a text/plain nel
+					// MIME DB, se StyledEdit non c'e'). Il file resta a
+					// disposizione dell'utente: puo' salvarlo altrove
+					// o chiuderlo senza salvare.
+					BPath tmpDir;
+					if (find_directory(B_SYSTEM_TEMP_DIRECTORY, &tmpDir)
+							!= B_OK) {
+						tmpDir.SetTo("/tmp");
+					}
+					char pathBuf[B_PATH_NAME_LENGTH];
+					snprintf(pathBuf, sizeof(pathBuf),
+						"%s/localsend-message-XXXXXX",
+						tmpDir.Path());
+					int fd = mkstemp(pathBuf);
+					if (fd >= 0) {
+						write(fd, text, strlen(text));
+						close(fd);
+						// Rinomina con .txt cosi' StyledEdit lo apre come
+						// testo e l'utente lo riconosce nel file panel.
+						std::string finalPath = std::string(pathBuf) + ".txt";
+						rename(pathBuf, finalPath.c_str());
+
+						entry_ref ref;
+						if (get_ref_for_path(finalPath.c_str(), &ref)
+								== B_OK) {
+							BMessage refs(B_REFS_RECEIVED);
+							refs.AddRef("refs", &ref);
+							// Prova prima con StyledEdit; se non c'e',
+							// fallback al preferred handler di text/plain.
+							if (be_roster->Launch(
+									"application/x-vnd.Haiku-StyledEdit",
+									&refs) != B_OK) {
+								be_roster->Launch(&ref);
+							}
+						}
+					}
+				}
 
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
