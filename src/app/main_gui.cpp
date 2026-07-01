@@ -127,6 +127,11 @@ struct AppSettings {
 	// se il flag e' true e il replicant manca all'avvio dell'app, lo
 	// re-installiamo noi.
 	bool deskbarItem = false;
+	// Se true, i trasferimenti dai fingerprint nei preferiti non aprono
+	// il dialog di conferma: passano al ricevente immediatamente e
+	// arriva solo la notifica di sistema. Default true per continuita'
+	// col comportamento storico (era hard-coded).
+	bool autoAcceptFavorites = true;
 
 	void DetectSystemLanguage()
 	{
@@ -170,6 +175,8 @@ struct AppSettings {
 			else if (key == "quickSave") quickSave = (val == "1");
 			else if (key == "https") https = (val == "1");
 			else if (key == "deskbarItem") deskbarItem = (val == "1");
+			else if (key == "autoAcceptFavorites")
+				autoAcceptFavorites = (val == "1");
 			else if (key == "language") {
 				language = val;
 				hasLang = true;
@@ -193,6 +200,8 @@ struct AppSettings {
 		fprintf(f, "quickSave=%d\n", quickSave ? 1 : 0);
 		fprintf(f, "https=%d\n", https ? 1 : 0);
 		fprintf(f, "deskbarItem=%d\n", deskbarItem ? 1 : 0);
+		fprintf(f, "autoAcceptFavorites=%d\n",
+			autoAcceptFavorites ? 1 : 0);
 		fprintf(f, "language=%s\n", language.c_str());
 		fclose(f);
 	}
@@ -1031,6 +1040,10 @@ public:
 		fQuickSaveBox = new BCheckBox(Tr(S_QUICK_SAVE), NULL);
 		fQuickSaveBox->SetValue(settings->quickSave ? B_CONTROL_ON
 			: B_CONTROL_OFF);
+		fAutoAcceptFavBox = new BCheckBox(Tr(S_AUTO_ACCEPT_FAVORITES),
+			NULL);
+		fAutoAcceptFavBox->SetValue(settings->autoAcceptFavorites
+			? B_CONTROL_ON : B_CONTROL_OFF);
 		fHttpsBox = new BCheckBox(Tr(S_ENABLE_HTTPS), NULL);
 		fHttpsBox->SetValue(B_CONTROL_ON);
 		fHttpsBox->SetEnabled(false);
@@ -1084,6 +1097,7 @@ public:
 			.Add(MakeLabel(Tr(S_SECURITY)))
 			.Add(fPinField)
 			.Add(fQuickSaveBox)
+			.Add(fAutoAcceptFavBox)
 			.AddStrut(B_USE_ITEM_SPACING)
 			.Add(MakeLabel(Tr(S_INTEGRATION)))
 			.AddGroup(B_HORIZONTAL)
@@ -1181,6 +1195,8 @@ public:
 				fSettings->pin = fPinField->Text();
 				fSettings->quickSave
 					= (fQuickSaveBox->Value() == B_CONTROL_ON);
+				fSettings->autoAcceptFavorites
+					= (fAutoAcceptFavBox->Value() == B_CONTROL_ON);
 				// Lingua.
 				bool langChanged = false;
 				BMenuItem* marked = fLangMenu->FindMarked();
@@ -1225,6 +1241,7 @@ private:
 	BTextControl* fPortField;
 	BTextControl* fPinField;
 	BCheckBox* fQuickSaveBox;
+	BCheckBox* fAutoAcceptFavBox;
 	BCheckBox* fHttpsBox;
 	BPopUpMenu* fLangMenu;
 	BMenuField* fLangField;
@@ -1460,10 +1477,13 @@ MainWindow::StartServer(void* sslCtx)
 			return HttpServerResponse::Empty(400);
 		}
 
-		// Auto-accept: quickSave accetta tutto, favoriti accettano
-		// solo i dispositivi salvati.
+		// Auto-accept: quickSave accetta tutto, i favoriti accettano
+		// se il flag autoAcceptFavorites (Impostazioni > Sicurezza)
+		// e' attivo. Cosi' l'utente puo' disabilitare il salta-dialog
+		// per i preferiti senza dover rimuoverli dall'elenco.
 		bool autoAccept = fSettings->quickSave;
-		if (!autoAccept && fFavorites.Contains(in.sender.fingerprint))
+		if (!autoAccept && fSettings->autoAcceptFavorites
+				&& fFavorites.Contains(in.sender.fingerprint))
 			autoAccept = true;
 
 		if (!autoAccept) {
