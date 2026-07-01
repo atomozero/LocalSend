@@ -19,6 +19,11 @@ struct HttpRequest {
 	std::map<std::string, std::string> query;   // chiavi/valori decodificati
 	std::map<std::string, std::string> headers; // chiavi in minuscolo
 	std::string body;
+	// Indirizzo IP del client (es. "192.168.1.42"). Serve al handler di
+	// /api/localsend/v2/register per aggiungere il peer al proprio elenco:
+	// il payload della POST non contiene l'IP del mittente (spesso il peer
+	// non lo conosce), quindi va preso dal socket TCP.
+	std::string clientHost;
 
 	// Valore di un parametro di query, o "" se assente.
 	std::string Query(const std::string& key) const

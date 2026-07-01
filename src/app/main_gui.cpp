@@ -1423,13 +1423,45 @@ MainWindow::StartServer(void* sslCtx)
 		return HttpServerResponse::Empty(200);
 	});
 
-	// Route: register + info.
+	// Route: info (GET). Ritorna il nostro DeviceInfo.
 	auto infoHandler = [this](const HttpRequest&) {
 		return HttpServerResponse::Json(200, fInfo->ToJson().Dump());
 	};
-	fServer.Route("POST", kApiRegister, infoHandler);
 	fServer.Route("GET", kApiInfo, infoHandler);
 	fServer.Route("GET", "/api/localsend/v1/info", infoHandler);
+
+	// Route: register (POST). Fondamentale per la scoperta bidirezionale:
+	// molti client (Android, Windows recenti) non annunciano periodicamente
+	// via multicast — dopo aver sentito UN nostro annuncio ci contattano
+	// direttamente qui col loro DeviceInfo. Il body contiene i loro dati,
+	// l'IP lo prendiamo dal socket (req.clientHost). Se non lo aggiungiamo
+	// da qui il peer resta invisibile nella nostra lista, pur potendo
+	// mandarci file lui.
+	fServer.Route("POST", kApiRegister, [this](const HttpRequest& req) {
+		try {
+			JsonValue msg = JsonValue::Parse(req.body);
+			if (msg.Has("alias") && msg.Has("fingerprint")
+					&& !req.clientHost.empty()) {
+				std::string fp = msg.At("fingerprint").AsString();
+				if (fp != fInfo->fingerprint) {
+					DiscoveredDevice dev;
+					dev.alias = msg.At("alias").AsString();
+					dev.fingerprint = fp;
+					dev.host = req.clientHost;
+					dev.port = msg.Has("port")
+						? static_cast<int>(msg.At("port").AsInt(kDefaultPort))
+						: kDefaultPort;
+					dev.deviceType = msg.Has("deviceType")
+						? msg.At("deviceType").AsString()
+						: std::string("unknown");
+					AddDevice(dev);
+				}
+			}
+		} catch (...) {
+			// Body non-JSON: rispondiamo comunque con le nostre info.
+		}
+		return HttpServerResponse::Json(200, fInfo->ToJson().Dump());
+	});
 
 	if (!fServer.Start(fInfo->port)) {
 		BAlert* alert = new BAlert("Errore",

@@ -187,13 +187,19 @@ SocketHttpServer::Run()
 		return;
 	fRunning = true;
 	while (fRunning) {
-		int client = accept(fListenFd, nullptr, nullptr);
+		sockaddr_in peer{};
+		socklen_t peerLen = sizeof(peer);
+		int client = accept(fListenFd, (sockaddr*)&peer, &peerLen);
 		if (client < 0) {
 			if (!fRunning)
 				break;
 			continue;
 		}
-		HandleConnection(client);
+		// L'IP del peer serve al handler /register per registrare
+		// dispositivi che ci contattano senza multicast.
+		char ip[INET_ADDRSTRLEN] = {0};
+		inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
+		HandleConnection(client, ip);
 		close(client);
 	}
 }
@@ -211,7 +217,7 @@ SocketHttpServer::Stop()
 
 
 void
-SocketHttpServer::HandleConnection(int clientFd)
+SocketHttpServer::HandleConnection(int clientFd, const char* clientHost)
 {
 	// Timeout di 10 secondi sulla lettura.
 	timeval tv{};
@@ -272,6 +278,8 @@ SocketHttpServer::HandleConnection(int clientFd)
 		}
 
 		HttpRequest req;
+		if (clientHost != nullptr)
+			req.clientHost = clientHost;
 		req.method = requestLine.substr(0, sp1);
 		std::string target = requestLine.substr(sp1 + 1, sp2 - sp1 - 1);
 

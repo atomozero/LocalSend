@@ -34,7 +34,7 @@ public:
 	void Stop() override;
 
 private:
-	void HandleConnection(int clientFd);
+	void HandleConnection(int clientFd, const char* clientHost);
 
 	int fListenFd = -1;
 	bool fRunning = false;
