@@ -51,6 +51,8 @@
 #include <vector>
 #include <condition_variable>
 
+#include <qrencode.h>
+
 #include "app/DeskbarItem.h"
 #include "app/Locale.h"
 #include "net/MulticastAnnouncer.h"
@@ -797,6 +799,142 @@ private:
 	BString fPeer;
 	BString fDate;
 	long long fSize;
+};
+
+
+// --- QrCodeView ------------------------------------------------------------
+//
+// Piccola BView autonoma che codifica una stringa con libqrencode e la
+// disegna alla dimensione richiesta. Il codice QR e' scalato in interi
+// (nearest neighbor) per restare nitido; se lo scale a interi supera la
+// larghezza disponibile, si adatta arrotondando per difetto.
+
+class QrCodeView : public BView {
+public:
+	QrCodeView(const char* text, int preferredSide)
+		:
+		BView("qr", B_WILL_DRAW),
+		fQr(QRcode_encodeString(text, 0, QR_ECLEVEL_L, QR_MODE_8, 1))
+	{
+		int modules = (fQr != NULL) ? fQr->width : 21;
+		// Cornice bianca (quiet zone) di 4 moduli per la specifica QR.
+		fScale = preferredSide / (modules + 8);
+		if (fScale < 2)
+			fScale = 2;
+		int side = (modules + 8) * fScale;
+		SetExplicitMinSize(BSize(side, side));
+		SetExplicitMaxSize(BSize(side, side));
+		SetExplicitPreferredSize(BSize(side, side));
+		SetViewColor(255, 255, 255);
+	}
+
+	virtual ~QrCodeView()
+	{
+		if (fQr != NULL)
+			QRcode_free(fQr);
+	}
+
+	virtual void Draw(BRect)
+	{
+		if (fQr == NULL)
+			return;
+		FillRect(Bounds(), B_SOLID_LOW); // sfondo bianco = view color
+		SetHighColor(0, 0, 0);
+		int m = fQr->width;
+		int quiet = 4 * fScale;
+		for (int y = 0; y < m; y++) {
+			for (int x = 0; x < m; x++) {
+				if (fQr->data[y * m + x] & 1) {
+					BRect r(quiet + x * fScale, quiet + y * fScale,
+						quiet + (x + 1) * fScale - 1,
+						quiet + (y + 1) * fScale - 1);
+					FillRect(r);
+				}
+			}
+		}
+	}
+
+private:
+	QRcode* fQr;
+	int fScale;
+};
+
+
+// --- ShareLinkWindow -------------------------------------------------------
+//
+// Sostituisce l'alert del "Share via link": mostra il QR del download URL
+// (utile con telefono/tablet: scansiona -> browser -> download) e i due
+// pulsanti Chiudi / Stop condivisione.
+
+class ShareLinkWindow : public BWindow {
+public:
+	enum { kMsgStop = 'STOP' };
+
+	ShareLinkWindow(const BString& status, const BString& url,
+			BMessenger target)
+		:
+		BWindow(BRect(160, 160, 560, 560), "LocalSend",
+			B_TITLED_WINDOW,
+			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
+				| B_CLOSE_ON_ESCAPE),
+		fTarget(target)
+	{
+		BStringView* statusView = new BStringView("status",
+			status.String());
+		BFont bold(be_bold_font);
+		bold.SetSize(be_plain_font->Size());
+		statusView->SetFont(&bold);
+
+		QrCodeView* qr = new QrCodeView(url.String(), 260);
+
+		BTextView* urlView = new BTextView("url");
+		urlView->SetText(url.String());
+		urlView->MakeEditable(false);
+		urlView->SetWordWrap(false);
+		urlView->SetStylable(false);
+		urlView->SetExplicitMinSize(BSize(B_SIZE_UNSET, 24));
+
+		BButton* stopBtn = new BButton(Tr(S_SHARE_LINK_STOP),
+			new BMessage(kMsgStop));
+		BButton* closeBtn = new BButton(Tr(S_OK),
+			new BMessage(B_QUIT_REQUESTED));
+		closeBtn->MakeDefault(true);
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(statusView)
+			.AddGroup(B_HORIZONTAL)
+				.AddGlue()
+				.Add(qr)
+				.AddGlue()
+			.End()
+			.Add(urlView)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(stopBtn)
+				.AddGlue()
+				.Add(closeBtn)
+			.End()
+		.End();
+
+		CenterOnScreen();
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		switch (msg->what) {
+			case kMsgStop:
+				// Ripassa la palla alla MainWindow che ferma il server
+				// (StopDownloadServer non e' accessibile da qui).
+				fTarget.SendMessage(kMsgStopShare);
+				PostMessage(B_QUIT_REQUESTED);
+				break;
+			default:
+				BWindow::MessageReceived(msg);
+		}
+	}
+
+private:
+	BMessenger fTarget;
 };
 
 
@@ -2463,16 +2601,13 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 		be_clipboard->Unlock();
 	}
 
-	// Mostra il link in un dialogo copiabile.
-	BString msg;
-	msg << status << "\n\n" << url
-		<< "\n\n(Link copiato negli appunti)";
-	BAlert* alert = new BAlert("LocalSend",
-		msg.String(), Tr(S_OK), Tr(S_SHARE_LINK_STOP),
-		NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
-	int32 result = alert->Go();
-	if (result == 1)
-		StopDownloadServer();
+	// Finestra dedicata (non modale): QR del link (scan da mobile),
+	// URL selezionabile, Stop condivisione + Chiudi. Il link e' gia'
+	// negli appunti (l'alert precedente lo diceva; ora ce lo tiene
+	// senza notifica ridondante).
+	ShareLinkWindow* w = new ShareLinkWindow(status, url,
+		BMessenger(this));
+	w->Show();
 }
 
 

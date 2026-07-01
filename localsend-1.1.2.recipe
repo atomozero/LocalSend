@@ -24,12 +24,14 @@ PROVIDES="
 REQUIRES="
 	haiku
 	lib:libcrypto
+	lib:libqrencode
 	lib:libssl
 	"
 
 BUILD_REQUIRES="
 	haiku_devel
 	devel:libcrypto
+	devel:libqrencode
 	devel:libssl
 	"
 BUILD_PREREQUIRES="

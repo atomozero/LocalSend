@@ -68,7 +68,7 @@ $(RECV_BIN): $(RECV_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe
 
 $(GUI_BIN): $(GUI_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe -ltracker
+	$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe -ltracker -lqrencode
 	rc -o $(GUI_BIN).rsrc LocalSend.rdef
 	xres -o $(GUI_BIN) $(GUI_BIN).rsrc
 	mimeset -f $(GUI_BIN)
