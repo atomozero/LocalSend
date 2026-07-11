@@ -12,6 +12,9 @@
 #include <Bitmap.h>
 #include <Box.h>
 #include <Button.h>
+#include <Entry.h>
+#include <Mime.h>
+#include <NodeInfo.h>
 #include <Catalog.h>
 #include <CheckBox.h>
 #include <Clipboard.h>
@@ -45,7 +48,9 @@
 #include <Window.h>
 
 #include <cstdio>
+#include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +60,7 @@
 
 #include "app/DeskbarItem.h"
 #include "app/Locale.h"
+#include "replicant/DesktopReplicant.h"
 #include "net/MulticastAnnouncer.h"
 #include "net/TlsContext.h"
 #include "net/haiku/SocketHttpClient.h"
@@ -110,7 +116,42 @@ enum {
 	kMsgTxRxCopy		= 'TXCP',
 	kMsgTxRxOpen		= 'TXOP',
 	kMsgTxRxSave		= 'TXSV',
-	kMsgTxRxSaveTo		= 'TXST'
+	kMsgTxRxSaveTo		= 'TXST',
+
+	// Fase 1 "cerchia": invio in sequenza a tutti i preferiti online.
+	// kMsgSendToCircle avvia il flusso (pulsante/file panel), kMsgCircleDone
+	// arriva dal thread di invio con l'esito aggregato (ok/total).
+	kMsgSendToCircle	= 'SCRC',
+	kMsgCircleDone		= 'CDNE',
+
+	// Fase 0 "bacheca": canale app <-> replicant e propagazione dei
+	// cambiamenti. I replicant (Deskbar/desktop) si iscrivono con BSUB
+	// passando il proprio BMessenger e ricevono BUPD a ogni cambiamento
+	// di bacheca o peer; BDRP e' il drop di file sul replicant (refs +
+	// bool "circle"), BOPN chiede di aprire la GUI/bacheca.
+	kMsgReplicantSubscribe	= 'BSUB',	// replicant -> app
+	kMsgReplicantUnsubscribe = 'BUNS',	// replicant -> app
+	kMsgBoardUpdate			= 'BUPD',	// app -> replicant iscritti
+	kMsgReplicantDrop		= 'BDRP',	// replicant -> app
+	kMsgOpenBoard			= 'BOPN',	// replicant -> app
+	kMsgBoardChanged		= 'BRDC',	// window -> app (rev/active/count)
+	kMsgPeerStats			= 'PSTA',	// window -> app (peer online)
+	kMsgAddToBoard			= 'BADD',	// app -> window (refs da pubblicare)
+
+	// Fase 3 "bacheca remota": lato osservatore. Quando un peer annuncia un
+	// boardRev diverso dall'ultimo noto la window fa il fetch della lista
+	// (prepare-download, thread separato) e aggiorna la finestra Bacheca.
+	kMsgShowBoard			= 'SBRD',	// apri/attiva la finestra Bacheca
+	kMsgPeerBoardChanged	= 'PBCH',	// announcer -> window (rev cambiata)
+	kMsgRemoteBoardFetched	= 'RBFE',	// thread fetch -> window (lista o errore)
+	kMsgBoardDownload		= 'BDLD',	// BoardWindow/auto -> window (scarica file)
+	kMsgBoardDownloadDone	= 'BDLE',	// thread download -> window (esito)
+	kMsgBoardDataChanged	= 'BDCH',	// window -> BoardWindow (snapshot)
+	kMsgBoardPickFiles		= 'BPIK',	// BoardWindow -> window (file panel)
+	kMsgBoardDownloadAll	= 'BDLA',	// interno a BoardWindow
+	kMsgBoardOpenLocal		= 'BOPL',	// interno a BoardWindow (apri file)
+	kMsgBoardRemove			= 'BRMV',	// BoardWindow -> window (togli file)
+	kMsgBoardDownloadOpen	= 'BDLO'	// interno a BoardWindow (scarica+apri)
 };
 
 
@@ -134,6 +175,13 @@ struct AppSettings {
 	// arriva solo la notifica di sistema. Default true per continuita'
 	// col comportamento storico (era hard-coded).
 	bool autoAcceptFavorites = true;
+	// Se true, i file nuovi in bacheca sui preferiti vengono scaricati
+	// da soli (con registro dei gia' scaricati). Default off: opt-in.
+	bool autoDownloadBoard = false;
+	// Se true, la bacheca (porta 53318) risponde solo ai preferiti:
+	// fingerprint noto in query o IP di un preferito online. Il browser
+	// di un estraneo riceve 403. Default off = comportamento storico.
+	bool boardFavoritesOnly = false;
 
 	void DetectSystemLanguage()
 	{
@@ -179,6 +227,10 @@ struct AppSettings {
 			else if (key == "deskbarItem") deskbarItem = (val == "1");
 			else if (key == "autoAcceptFavorites")
 				autoAcceptFavorites = (val == "1");
+			else if (key == "autoDownloadBoard")
+				autoDownloadBoard = (val == "1");
+			else if (key == "boardFavoritesOnly")
+				boardFavoritesOnly = (val == "1");
 			else if (key == "language") {
 				language = val;
 				hasLang = true;
@@ -204,6 +256,8 @@ struct AppSettings {
 		fprintf(f, "deskbarItem=%d\n", deskbarItem ? 1 : 0);
 		fprintf(f, "autoAcceptFavorites=%d\n",
 			autoAcceptFavorites ? 1 : 0);
+		fprintf(f, "autoDownloadBoard=%d\n", autoDownloadBoard ? 1 : 0);
+		fprintf(f, "boardFavoritesOnly=%d\n", boardFavoritesOnly ? 1 : 0);
 		fprintf(f, "language=%s\n", language.c_str());
 		fclose(f);
 	}
@@ -366,6 +420,84 @@ struct Favorites {
 };
 
 
+// --- Registro bacheca: file gia' scaricati -----------------------------------
+
+static const char* kBoardSeenFile = "./localsend_board_seen";
+
+// Ricorda quali file di bacheca remota sono gia' stati scaricati
+// (auto-download): il boardRev del peer cresce a ogni aggiunta e la lista
+// e' cumulativa, senza registro riscaricheremmo tutto a ogni bump.
+struct BoardSeen {
+	std::set<std::string> keys;
+
+	bool Contains(const std::string& k) const { return keys.count(k) > 0; }
+
+	void Add(const std::string& k)
+	{
+		if (keys.insert(k).second)
+			Save();
+	}
+
+	void Load()
+	{
+		FILE* f = fopen(kBoardSeenFile, "r");
+		if (!f)
+			return;
+		char line[512];
+		while (fgets(line, sizeof(line), f)) {
+			std::string l(line);
+			while (!l.empty()
+				&& (l.back() == '\n' || l.back() == '\r'))
+				l.pop_back();
+			if (!l.empty())
+				keys.insert(l);
+		}
+		fclose(f);
+	}
+
+	void Save() const
+	{
+		FILE* f = fopen(kBoardSeenFile, "w");
+		if (!f)
+			return;
+		for (const auto& k : keys)
+			fprintf(f, "%s\n", k.c_str());
+		fclose(f);
+	}
+};
+
+// Chiave del registro: identifica un file di bacheca di un peer in modo
+// stabile tra un fetch e l'altro (id + nome + dimensione).
+static std::string
+BoardSeenKey(const std::string& fingerprint, const std::string& fileId,
+	const std::string& fileName, long long size)
+{
+	return fingerprint + "\t" + fileId + "|" + fileName + "|"
+		+ std::to_string(size);
+}
+
+
+// --- Bacheca remota (lato osservatore) ---------------------------------------
+
+struct RemoteBoardFile {
+	std::string id;       // fileId del peer ("file-N")
+	std::string fileName;
+	std::string fileType; // MIME: icona in BoardWindow e drag negoziato
+	long long size = 0;
+};
+
+// Snapshot della bacheca di un peer, aggiornato al cambio di boardRev.
+// Toccato SOLO dal thread della MainWindow: i thread di fetch consegnano
+// i dati via kMsgRemoteBoardFetched.
+struct RemoteBoard {
+	std::string alias;
+	std::string host;
+	std::string fingerprint;
+	int rev = 0;
+	std::vector<RemoteBoardFile> files;
+};
+
+
 // --- Dispositivo scoperto in LAN -------------------------------------------
 
 struct DiscoveredDevice {
@@ -374,6 +506,10 @@ struct DiscoveredDevice {
 	int port;
 	std::string deviceType;
 	std::string fingerprint;
+	// Estensione Haiku: revisione della bacheca del peer (0 = nessuna).
+	// Aggiornata a ogni annuncio; la Fase 3 la confronta con l'ultima
+	// nota per capire quando rifare il fetch della lista.
+	int boardRev = 0;
 	// Ultima volta che ne abbiamo sentito parlare (annuncio o reply).
 	// Aggiornato a ogni pacchetto multicast/unicast valido del peer; il
 	// pruning periodico (kMsgPruneDevices) rimuove chi non si fa sentire
@@ -1182,6 +1318,13 @@ public:
 			NULL);
 		fAutoAcceptFavBox->SetValue(settings->autoAcceptFavorites
 			? B_CONTROL_ON : B_CONTROL_OFF);
+		fAutoDownloadBoardBox = new BCheckBox(Tr(S_AUTO_DOWNLOAD_BOARD),
+			NULL);
+		fAutoDownloadBoardBox->SetValue(settings->autoDownloadBoard
+			? B_CONTROL_ON : B_CONTROL_OFF);
+		fBoardFavsOnlyBox = new BCheckBox(Tr(S_BOARD_FAVS_ONLY), NULL);
+		fBoardFavsOnlyBox->SetValue(settings->boardFavoritesOnly
+			? B_CONTROL_ON : B_CONTROL_OFF);
 		fHttpsBox = new BCheckBox(Tr(S_ENABLE_HTTPS), NULL);
 		fHttpsBox->SetValue(B_CONTROL_ON);
 		fHttpsBox->SetEnabled(false);
@@ -1236,10 +1379,20 @@ public:
 			.Add(fPinField)
 			.Add(fQuickSaveBox)
 			.Add(fAutoAcceptFavBox)
+			.Add(fAutoDownloadBoardBox)
+			.Add(fBoardFavsOnlyBox)
 			.AddStrut(B_USE_ITEM_SPACING)
 			.Add(MakeLabel(Tr(S_INTEGRATION)))
 			.AddGroup(B_HORIZONTAL)
 				.Add(fDeskbarBtn)
+				.AddGlue()
+			.End()
+			// Replicant desktop: anteprima viva della drop-zone con la
+			// maniglia BDragger. L'utente la trascina sul desktop (serve
+			// "Show replicants" attivo nella Deskbar).
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(new BStringView("", Tr(S_DESKTOP_REPLICANT)))
+				.Add(NewLocalSendDropView(48))
 				.AddGlue()
 			.End()
 			.AddGlue()
@@ -1335,6 +1488,10 @@ public:
 					= (fQuickSaveBox->Value() == B_CONTROL_ON);
 				fSettings->autoAcceptFavorites
 					= (fAutoAcceptFavBox->Value() == B_CONTROL_ON);
+				fSettings->autoDownloadBoard
+					= (fAutoDownloadBoardBox->Value() == B_CONTROL_ON);
+				fSettings->boardFavoritesOnly
+					= (fBoardFavsOnlyBox->Value() == B_CONTROL_ON);
 				// Lingua.
 				bool langChanged = false;
 				BMenuItem* marked = fLangMenu->FindMarked();
@@ -1380,11 +1537,559 @@ private:
 	BTextControl* fPinField;
 	BCheckBox* fQuickSaveBox;
 	BCheckBox* fAutoAcceptFavBox;
+	BCheckBox* fAutoDownloadBoardBox;
+	BCheckBox* fBoardFavsOnlyBox;
 	BCheckBox* fHttpsBox;
 	BPopUpMenu* fLangMenu;
 	BMenuField* fLangField;
 	BFilePanel* fDirPanel;
 	BButton* fDeskbarBtn;
+};
+
+
+// --- BoardWindow -------------------------------------------------------------
+
+static BString
+BoardSizeLabel(int64 size)
+{
+	BString s;
+	if (size >= 1024 * 1024)
+		s << (int32)(size / (1024 * 1024)) << " MB";
+	else
+		s << (int32)(size / 1024) << " KB";
+	return s;
+}
+
+
+// Item della bacheca, locale o remoto: icona 32x32 + nome + sottotitolo
+// (dimensione; per i remoti anche l'alias del peer). L'icona locale viene
+// dal file vero (BNodeInfo), quella remota dal MIME type dei metadati.
+// Un item remoto porta con se' tutto quello che serve per chiedere il
+// download alla MainWindow (host, fileId, nome, dimensione).
+class BoardFileItem : public BListItem {
+public:
+	// Bacheca locale: path pieno del file condiviso.
+	BoardFileItem(const char* path, const char* name)
+		:
+		fLocal(true),
+		fLocalPath(path),
+		fName(name),
+		fSize(0),
+		fIcon(nullptr)
+	{
+		BEntry entry(path);
+		off_t sz = 0;
+		if (entry.GetSize(&sz) == B_OK)
+			fSize = sz;
+		fSubtitle = BoardSizeLabel(fSize);
+
+		entry_ref ref;
+		if (entry.GetRef(&ref) == B_OK) {
+			BBitmap* bm = new BBitmap(BRect(0, 0, 31, 31), B_RGBA32);
+			if (BNodeInfo::GetTrackerIcon(&ref, bm,
+					(icon_size)32) == B_OK) {
+				fIcon = bm;
+			} else
+				delete bm;
+		}
+	}
+
+	// Bacheca remota: metadati dal prepare-download del peer.
+	BoardFileItem(const char* host, const char* alias,
+		const char* fingerprint, const char* fileId,
+		const char* fileName, const char* fileType, int64 size)
+		:
+		fLocal(false),
+		fHost(host),
+		fAlias(alias),
+		fFingerprint(fingerprint),
+		fFileId(fileId),
+		fName(fileName),
+		fFileType(fileType),
+		fSize(size),
+		fIcon(_MimeIcon(fileType))
+	{
+		fSubtitle << fAlias << " \xe2\x80\x94 " << BoardSizeLabel(size);
+	}
+
+	virtual ~BoardFileItem()
+	{
+		delete fIcon;
+	}
+
+	bool IsLocal() const { return fLocal; }
+	const BString& LocalPath() const { return fLocalPath; }
+	const char* Name() const { return fName.String(); }
+	const BString& FileType() const { return fFileType; }
+	const BBitmap* Icon() const { return fIcon; }
+
+	void FillRequest(BMessage* req) const
+	{
+		req->AddString("host", fHost);
+		req->AddString("alias", fAlias);
+		req->AddString("fingerprint", fFingerprint);
+		req->AddString("fileId", fFileId);
+		req->AddString("fileName", fName);
+		req->AddInt64("size", fSize);
+	}
+
+	virtual void Update(BView* owner, const BFont* font)
+	{
+		BListItem::Update(owner, font);
+		// Icona 32px + margini: due righe di testo ci stanno comode.
+		if (Height() < 40)
+			SetHeight(40);
+	}
+
+	virtual void DrawItem(BView* owner, BRect frame, bool /*complete*/)
+	{
+		rgb_color bg = IsSelected()
+			? ui_color(B_LIST_SELECTED_BACKGROUND_COLOR)
+			: ui_color(B_LIST_BACKGROUND_COLOR);
+		owner->SetHighColor(bg);
+		owner->SetLowColor(bg);
+		owner->FillRect(frame);
+
+		if (fIcon) {
+			owner->SetDrawingMode(B_OP_ALPHA);
+			owner->DrawBitmap(fIcon, BPoint(frame.left + 5,
+				frame.top + (frame.Height() - 31) / 2));
+			owner->SetDrawingMode(B_OP_COPY);
+		}
+
+		rgb_color text = IsSelected()
+			? ui_color(B_LIST_SELECTED_ITEM_TEXT_COLOR)
+			: ui_color(B_LIST_ITEM_TEXT_COLOR);
+
+		float x = frame.left + 5 + 32 + 7;
+		BFont font;
+		owner->GetFont(&font);
+		font_height fh;
+		font.GetHeight(&fh);
+
+		owner->SetHighColor(text);
+		owner->DrawString(fName.String(),
+			BPoint(x, frame.top + 4 + fh.ascent));
+
+		// Sottotitolo: font ridotto e colore attenuato verso lo sfondo.
+		BFont small(font);
+		small.SetSize(font.Size() * 0.85f);
+		owner->SetFont(&small);
+		font_height sfh;
+		small.GetHeight(&sfh);
+		owner->SetHighColor(mix_color(text, bg, 110));
+		owner->DrawString(fSubtitle.String(), BPoint(x,
+			frame.top + 4 + fh.ascent + fh.descent + 2 + sfh.ascent));
+		owner->SetFont(&font);
+	}
+
+private:
+	// Icona vettoriale dal MIME database: tipo esatto, poi supertipo,
+	// poi il generico application/octet-stream.
+	static BBitmap* _MimeIcon(const char* type)
+	{
+		auto tryType = [](const char* t) -> BBitmap* {
+			if (t == nullptr || *t == '\0')
+				return nullptr;
+			BMimeType mt(t);
+			uint8* data = nullptr;
+			size_t size = 0;
+			if (mt.GetIcon(&data, &size) != B_OK || data == nullptr)
+				return nullptr;
+			BBitmap* bm = new BBitmap(BRect(0, 0, 31, 31), B_RGBA32);
+			if (BIconUtils::GetVectorIcon(data, size, bm) != B_OK) {
+				delete bm;
+				free(data);
+				return nullptr;
+			}
+			free(data);
+			return bm;
+		};
+
+		BBitmap* bm = tryType(type);
+		if (bm == nullptr && type != nullptr && *type != '\0') {
+			BMimeType mt(type);
+			BMimeType super;
+			if (mt.GetSupertype(&super) == B_OK)
+				bm = tryType(super.Type());
+		}
+		if (bm == nullptr)
+			bm = tryType("application/octet-stream");
+		return bm;
+	}
+
+	bool fLocal;
+	BString fLocalPath;   // solo locale
+	BString fHost;        // solo remoto
+	BString fAlias;
+	BString fFingerprint;
+	BString fFileId;
+	BString fName;
+	BString fFileType;
+	BString fSubtitle;
+	int64 fSize;
+	BBitmap* fIcon;
+};
+
+
+// Lista "La mia bacheca": i file si trascinano fuori come veri entry_ref
+// (Tracker li copia da solo); tasto destro per Apri / Rimuovi.
+class MyBoardListView : public BListView {
+public:
+	MyBoardListView()
+		:
+		BListView("myboard")
+	{
+	}
+
+	virtual bool InitiateDrag(BPoint, int32 index, bool)
+	{
+		BoardFileItem* item
+			= dynamic_cast<BoardFileItem*>(ItemAt(index));
+		if (item == nullptr || item->LocalPath().IsEmpty())
+			return false;
+		entry_ref ref;
+		if (get_ref_for_path(item->LocalPath().String(), &ref) != B_OK)
+			return false;
+
+		BMessage drag(B_SIMPLE_DATA);
+		drag.AddRef("refs", &ref);
+		drag.AddString("be:clip_name", item->Name());
+		if (item->Icon() != nullptr) {
+			DragMessage(&drag, new BBitmap(*item->Icon()),
+				B_OP_ALPHA, BPoint(16, 16));
+		} else
+			DragMessage(&drag, ItemFrame(index));
+		return true;
+	}
+
+	virtual void MouseDown(BPoint where)
+	{
+		BMessage* msg = Window() ? Window()->CurrentMessage() : nullptr;
+		int32 buttons = 0;
+		if (msg != nullptr)
+			msg->FindInt32("buttons", &buttons);
+		if (buttons & B_SECONDARY_MOUSE_BUTTON) {
+			int32 index = IndexOf(where);
+			if (index >= 0
+				&& dynamic_cast<BoardFileItem*>(ItemAt(index))) {
+				Select(index);
+				BPopUpMenu* menu = new BPopUpMenu("board-ctx",
+					false, false);
+				menu->SetAsyncAutoDestruct(true);
+				menu->AddItem(new BMenuItem(Tr(S_OPEN),
+					new BMessage(kMsgBoardOpenLocal)));
+				menu->AddItem(new BMenuItem(Tr(S_REMOVE_FROM_BOARD),
+					new BMessage(kMsgBoardRemove)));
+				menu->SetTargetForItems(BMessenger(Window()));
+				menu->Go(ConvertToScreen(where), true, true, true);
+			}
+			return;
+		}
+		BListView::MouseDown(where);
+	}
+};
+
+
+// Lista "Dalla cerchia": drag negoziato (B_COPY_TARGET) — trascini il file
+// su una cartella di Tracker, Tracker risponde con la destinazione e il
+// download parte direttamente li'. Tasto destro: Scarica / Scarica e apri.
+class RemoteBoardListView : public BListView {
+public:
+	RemoteBoardListView()
+		:
+		BListView("remoteboard")
+	{
+	}
+
+	virtual bool InitiateDrag(BPoint, int32 index, bool)
+	{
+		BoardFileItem* item
+			= dynamic_cast<BoardFileItem*>(ItemAt(index));
+		if (item == nullptr || item->IsLocal())
+			return false;
+
+		// Ricorda cosa stiamo trascinando: la risposta B_COPY_TARGET
+		// di Tracker non riporta i nostri campi (un drag alla volta).
+		fPending = BMessage(kMsgBoardDownload);
+		item->FillRequest(&fPending);
+
+		BMessage drag(B_SIMPLE_DATA);
+		drag.AddInt32("be:actions", B_COPY_TARGET);
+		drag.AddString("be:types", B_FILE_MIME_TYPE);
+		if (item->FileType().Length() > 0)
+			drag.AddString("be:filetypes", item->FileType());
+		drag.AddString("be:clip_name", item->Name());
+		if (item->Icon() != nullptr) {
+			DragMessage(&drag, new BBitmap(*item->Icon()),
+				B_OP_ALPHA, BPoint(16, 16));
+		} else
+			DragMessage(&drag, ItemFrame(index));
+		return true;
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		if (msg->what == B_COPY_TARGET) {
+			// Risposta di Tracker al drag negoziato: directory (e nome)
+			// di destinazione. Completa la richiesta e passala alla
+			// BoardWindow, che la inoltra alla MainWindow.
+			entry_ref dirRef;
+			if (msg->FindRef("directory", &dirRef) == B_OK
+					&& fPending.HasString("host")) {
+				BPath dir(&dirRef);
+				const char* name = nullptr;
+				msg->FindString("name", &name);
+				BMessage req(fPending);
+				if (dir.InitCheck() == B_OK)
+					req.AddString("destdir", dir.Path());
+				if (name != nullptr)
+					req.AddString("destname", name);
+				Window()->PostMessage(&req);
+			}
+			return;
+		}
+		BListView::MessageReceived(msg);
+	}
+
+	virtual void MouseDown(BPoint where)
+	{
+		BMessage* msg = Window() ? Window()->CurrentMessage() : nullptr;
+		int32 buttons = 0;
+		if (msg != nullptr)
+			msg->FindInt32("buttons", &buttons);
+		if (buttons & B_SECONDARY_MOUSE_BUTTON) {
+			int32 index = IndexOf(where);
+			BoardFileItem* item
+				= dynamic_cast<BoardFileItem*>(ItemAt(index));
+			if (item != nullptr && !item->IsLocal()) {
+				Select(index);
+				BPopUpMenu* menu = new BPopUpMenu("board-ctx",
+					false, false);
+				menu->SetAsyncAutoDestruct(true);
+				menu->AddItem(new BMenuItem(Tr(S_DOWNLOAD),
+					new BMessage(kMsgBoardDownload)));
+				menu->AddItem(new BMenuItem(Tr(S_DOWNLOAD_AND_OPEN),
+					new BMessage(kMsgBoardDownloadOpen)));
+				menu->SetTargetForItems(BMessenger(Window()));
+				menu->Go(ConvertToScreen(where), true, true, true);
+			}
+			return;
+		}
+		BListView::MouseDown(where);
+	}
+
+private:
+	BMessage fPending;
+};
+
+
+// Finestra Bacheca: sopra i file pubblicati da questo dispositivo, sotto
+// quelli in bacheca sui peer della LAN. Nessun accesso alle strutture della
+// MainWindow: riceve snapshot completi via kMsgBoardDataChanged e le rimanda
+// le azioni (aggiungi/svuota/scarica) via BMessenger.
+class BoardWindow : public BWindow {
+public:
+	BoardWindow(BMessenger target)
+		:
+		BWindow(BRect(160, 160, 600, 600), Tr(S_BOARD), B_TITLED_WINDOW,
+			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
+				| B_CLOSE_ON_ESCAPE),
+		fTarget(target)
+	{
+		auto MakeLabel = [](const char* text) {
+			BStringView* sv = new BStringView("", text);
+			sv->SetFont(be_bold_font);
+			return sv;
+		};
+
+		fMyList = new MyBoardListView();
+		// Doppio click su un file locale = aprilo.
+		fMyList->SetInvocationMessage(new BMessage(kMsgBoardOpenLocal));
+		BScrollView* myScroll = new BScrollView("myscroll", fMyList,
+			0, false, true, B_FANCY_BORDER);
+
+		fRemoteList = new RemoteBoardListView();
+		// Doppio click su un file remoto = scaricalo.
+		fRemoteList->SetInvocationMessage(
+			new BMessage(kMsgBoardDownload));
+		BScrollView* remScroll = new BScrollView("remscroll", fRemoteList,
+			0, false, true, B_FANCY_BORDER);
+
+		BButton* addBtn = new BButton(Tr(S_ADD_FILES),
+			new BMessage(kMsgBoardPickFiles));
+		BButton* clearBtn = new BButton(Tr(S_CLEAR_BOARD),
+			new BMessage(kMsgStopShare));
+		BButton* dlAllBtn = new BButton(Tr(S_DOWNLOAD_ALL),
+			new BMessage(kMsgBoardDownloadAll));
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(MakeLabel(Tr(S_MY_BOARD)))
+			.Add(myScroll, 1.0)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(addBtn)
+				.Add(clearBtn)
+				.AddGlue()
+			.End()
+			.AddStrut(B_USE_ITEM_SPACING)
+			.Add(MakeLabel(Tr(S_FROM_CIRCLE)))
+			.Add(remScroll, 1.0)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(dlAllBtn)
+				.AddGlue()
+			.End()
+		.End();
+
+		SetSizeLimits(340, B_SIZE_UNLIMITED, 320, B_SIZE_UNLIMITED);
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		switch (msg->what) {
+			case kMsgShowBoard:
+				// Gia' aperta: portala solo in primo piano.
+				Activate(true);
+				break;
+
+			case kMsgBoardDataChanged:
+				_Rebuild(msg);
+				break;
+
+			case kMsgBoardDownload:
+			{
+				// Richiesta gia' completa (drag negoziato): inoltrala.
+				if (msg->HasString("host")) {
+					fTarget.SendMessage(msg);
+					break;
+				}
+				// Invocazione (doppio click / menu) della lista remota.
+				int32 sel = fRemoteList->CurrentSelection();
+				BoardFileItem* item = dynamic_cast<BoardFileItem*>(
+					fRemoteList->ItemAt(sel));
+				if (item && !item->IsLocal())
+					_RequestDownload(item, false);
+				break;
+			}
+
+			case kMsgBoardDownloadOpen:
+			{
+				int32 sel = fRemoteList->CurrentSelection();
+				BoardFileItem* item = dynamic_cast<BoardFileItem*>(
+					fRemoteList->ItemAt(sel));
+				if (item && !item->IsLocal())
+					_RequestDownload(item, true);
+				break;
+			}
+
+			case kMsgBoardDownloadAll:
+			{
+				for (int32 i = 0; i < fRemoteList->CountItems(); i++) {
+					BoardFileItem* item = dynamic_cast<BoardFileItem*>(
+						fRemoteList->ItemAt(i));
+					if (item && !item->IsLocal())
+						_RequestDownload(item, false);
+				}
+				break;
+			}
+
+			case kMsgBoardOpenLocal:
+			{
+				// Doppio click / "Apri" sulla lista locale.
+				int32 sel = fMyList->CurrentSelection();
+				BoardFileItem* item = dynamic_cast<BoardFileItem*>(
+					fMyList->ItemAt(sel));
+				if (item && !item->LocalPath().IsEmpty()) {
+					entry_ref ref;
+					if (get_ref_for_path(item->LocalPath().String(),
+							&ref) == B_OK)
+						be_roster->Launch(&ref);
+				}
+				break;
+			}
+
+			case kMsgBoardRemove:
+			{
+				int32 sel = fMyList->CurrentSelection();
+				BoardFileItem* item = dynamic_cast<BoardFileItem*>(
+					fMyList->ItemAt(sel));
+				if (item && !item->LocalPath().IsEmpty()) {
+					BMessage req(kMsgBoardRemove);
+					req.AddString("path", item->LocalPath());
+					fTarget.SendMessage(&req);
+				}
+				break;
+			}
+
+			case kMsgBoardPickFiles:
+			case kMsgStopShare:
+				// Azioni sulla bacheca locale: le esegue la MainWindow.
+				fTarget.SendMessage(msg->what);
+				break;
+
+			default:
+				BWindow::MessageReceived(msg);
+		}
+	}
+
+private:
+	void _RequestDownload(BoardFileItem* item, bool openAfter)
+	{
+		BMessage req(kMsgBoardDownload);
+		item->FillRequest(&req);
+		if (openAfter)
+			req.AddBool("open", true);
+		fTarget.SendMessage(&req);
+	}
+
+	void _Rebuild(BMessage* msg)
+	{
+		while (fMyList->CountItems() > 0)
+			delete fMyList->RemoveItem((int32)0);
+		while (fRemoteList->CountItems() > 0)
+			delete fRemoteList->RemoveItem((int32)0);
+
+		for (int32 i = 0; ; i++) {
+			const char* name = nullptr;
+			if (msg->FindString("my", i, &name) != B_OK)
+				break;
+			const char* path = nullptr;
+			msg->FindString("mypath", i, &path);
+			fMyList->AddItem(new BoardFileItem(path ? path : "",
+				name ? name : "?"));
+		}
+		if (fMyList->CountItems() == 0)
+			fMyList->AddItem(new BStringItem(Tr(S_BOARD_EMPTY)));
+
+		for (int32 i = 0; ; i++) {
+			const char* fname = nullptr;
+			if (msg->FindString("rname", i, &fname) != B_OK)
+				break;
+			const char* alias = nullptr;
+			const char* host = nullptr;
+			const char* fp = nullptr;
+			const char* id = nullptr;
+			const char* type = nullptr;
+			msg->FindString("ralias", i, &alias);
+			msg->FindString("rhost", i, &host);
+			msg->FindString("rfp", i, &fp);
+			msg->FindString("rid", i, &id);
+			msg->FindString("rtype", i, &type);
+			int64 sz = 0;
+			msg->FindInt64("rsize", i, &sz);
+
+			fRemoteList->AddItem(new BoardFileItem(
+				host ? host : "", alias ? alias : "?",
+				fp ? fp : "", id ? id : "",
+				fname ? fname : "?", type ? type : "", sz));
+		}
+		if (fRemoteList->CountItems() == 0)
+			fRemoteList->AddItem(new BStringItem(Tr(S_BOARD_EMPTY)));
+	}
+
+	BMessenger fTarget;
+	BListView* fMyList;
+	BListView* fRemoteList;
 };
 
 
@@ -1405,6 +2110,9 @@ public:
 	void HandleIncoming(IncomingRequest* req);
 	void SetStatus(const char* text);
 	void AddPendingFiles(const std::vector<std::string>& paths);
+	// Pubblica file in bacheca: avvia il download server se fermo,
+	// altrimenti accoda (dedupe per path) e notifica il cambio.
+	void AddToBoard(const std::vector<std::string>& paths);
 
 	// Permette al prossimo QuitRequested di chiudere davvero (saltando
 	// il pattern hide-on-close usato quando il replicant Deskbar e' presente).
@@ -1417,8 +2125,26 @@ private:
 		const std::string& text);
 	void SendFiles(const std::string& host, int port,
 		const std::vector<std::string>& paths);
-	void StartDownloadServer(const std::vector<std::string>& files);
+	void SendToCircle(const std::vector<std::string>& paths);
+	// showLinkUi: con true (Share via link) mostra la finestra QR e copia
+	// il link negli appunti; con false (drop in bacheca) parte in silenzio.
+	void StartDownloadServer(const std::vector<std::string>& files,
+		bool showLinkUi = true);
 	void StopDownloadServer();
+	// Serve i byte di un file della bacheca (indice in fSharedFiles).
+	// Chiamato dagli handler del download server (thread server).
+	HttpServerResponse _ServeSharedFile(int id);
+	// Filtro "bacheca solo ai preferiti" per le route del download server
+	// (thread server): fingerprint in query o IP di un preferito online.
+	bool _BoardAccessAllowed(const HttpRequest& req);
+	// Manda lo snapshot completo (mia bacheca + bacheche remote) alla
+	// BoardWindow, se aperta (UI-thread).
+	void _PushBoardData();
+	// Dopo ogni mutazione della bacheca (UI-thread): bump di fBoardRev
+	// e notifica all'app (annuncio multicast + replicant iscritti).
+	void _BoardChanged();
+	// Posta all'app il conteggio peer online / preferiti online (UI-thread).
+	void _PostPeerStats();
 	// Rimuove peer non sentiti da kDeviceTimeoutSeconds (UI-thread).
 	void PruneStaleDevices();
 
@@ -1450,10 +2176,21 @@ private:
 	std::vector<std::string> fPendingPaths;
 
 	// Download API (L5): server HTTP plain per condivisione via browser.
+	// Da Fase 0 e' la "bacheca": fSharedFiles muta a runtime (AddToBoard)
+	// mentre il thread del server la legge, quindi va protetta da mutex.
 	SocketHttpServer fDownloadServer;
 	std::thread fDownloadThread;
-	std::vector<std::string> fSharedFiles; // path dei file condivisi
+	std::mutex fSharedMtx;
+	std::vector<std::string> fSharedFiles; // path dei file in bacheca
 	bool fDownloadActive = false;
+	int fBoardRev = 0; // revisione bacheca, annunciata via multicast
+
+	// Bacheche remote (Fase 3): per fingerprint, solo UI-thread.
+	std::map<std::string, RemoteBoard> fRemoteBoards;
+	// Registro dei file gia' scaricati in auto-download.
+	BoardSeen fBoardSeen;
+	// Finestra Bacheca, se aperta (invalida quando l'utente la chiude).
+	BMessenger fBoardWinMsgr;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -1482,6 +2219,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fSink.EnsureDir();
 	fHistory.Load();
 	fFavorites.Load();
+	fBoardSeen.Load();
 
 	// Header.
 	fHeader = new HeaderView();
@@ -1516,6 +2254,8 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 		new BMessage(kMsgSendFile));
 	BButton* textBtn = new BButton(Tr(S_SEND_TEXT),
 		new BMessage(kMsgSendText));
+	BButton* circleBtn = new BButton(Tr(S_SEND_TO_CIRCLE),
+		new BMessage(kMsgSendToCircle));
 	BButton* favBtn = new BButton("\xe2\x98\x85",
 		new BMessage(kMsgToggleFavorite));
 	BButton* settingsBtn = new BButton(Tr(S_SETTINGS),
@@ -1539,12 +2279,15 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(sendBtn, 1.0)
 				.Add(textBtn, 1.0)
+				.Add(circleBtn, 1.0)
 				.Add(favBtn, 0.0)
 			.End()
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(historyBtn, 1.0)
 				.Add(new BButton(Tr(S_SHARE_LINK),
 					new BMessage(kMsgShareLink)), 1.0)
+				.Add(new BButton(Tr(S_BOARD),
+					new BMessage(kMsgShowBoard)), 1.0)
 				.Add(settingsBtn, 1.0)
 				.Add(new BButton("?",
 					new BMessage(kMsgAbout)), 0.0)
@@ -1811,6 +2554,7 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	copy.lastSeen = time(nullptr);
 
 	bool isNew = true;
+	bool boardChanged = false;
 	{
 		std::lock_guard<std::mutex> lock(fDevicesMtx);
 		for (auto& d : fDevices) {
@@ -1819,12 +2563,29 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 				// Host puo' cambiare (DHCP): tienilo aggiornato.
 				d.host = copy.host;
 				d.port = copy.port;
+				if (d.boardRev != copy.boardRev) {
+					d.boardRev = copy.boardRev;
+					boardChanged = true;
+				}
 				isNew = false;
 				break;
 			}
 		}
-		if (isNew)
+		if (isNew) {
 			fDevices.push_back(copy);
+			boardChanged = copy.boardRev > 0;
+		}
+	}
+
+	// Bacheca del peer cambiata (o peer nuovo con bacheca attiva): la
+	// window fara' il fetch della lista sul proprio thread.
+	if (boardChanged) {
+		BMessage bm(kMsgPeerBoardChanged);
+		bm.AddString("alias", copy.alias.c_str());
+		bm.AddString("host", copy.host.c_str());
+		bm.AddString("fingerprint", copy.fingerprint.c_str());
+		bm.AddInt32("rev", copy.boardRev);
+		PostMessage(&bm);
 	}
 
 	if (!isNew)
@@ -1889,6 +2650,7 @@ MainWindow::PruneStaleDevices()
 			}
 		}
 	}
+	_PostPeerStats();
 }
 
 
@@ -2043,6 +2805,7 @@ MainWindow::MessageReceived(BMessage* msg)
 				fDeviceList->AddItem(new DeviceListItem(
 					alias, type ? type : "", ip ? ip : "",
 					fp ? fp : "", fav));
+				_PostPeerStats();
 			}
 			break;
 		}
@@ -2094,7 +2857,7 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgAbout:
 		{
 			BAlert* alert = new BAlert("About LocalSend",
-				"LocalSend for Haiku v1.0.0\n\n"
+				"LocalSend for Haiku v1.2.0\n\n"
 				"Native LocalSend v2.1 client.\n"
 				"Share files over LAN with any device.\n\n"
 				"by atomozero\n"
@@ -2110,23 +2873,28 @@ MainWindow::MessageReceived(BMessage* msg)
 
 		case kMsgToggleFavorite:
 		{
-			std::lock_guard<std::mutex> lock(fDevicesMtx);
-			int32 sel = fDeviceList->CurrentSelection();
-			if (sel >= 0 && sel < (int32)fDevices.size()) {
-				auto& dev = fDevices[sel];
-				DeviceListItem* item = dynamic_cast<DeviceListItem*>(
-					fDeviceList->ItemAt(sel));
-				if (item) {
-					if (fFavorites.Contains(dev.fingerprint)) {
-						fFavorites.Remove(dev.fingerprint);
-						item->SetFavorite(false);
-					} else {
-						fFavorites.Add(dev.fingerprint);
-						item->SetFavorite(true);
+			// Scope interno: _PostPeerStats riprende fDevicesMtx, il lock
+			// deve essere gia' rilasciato quando la chiamiamo.
+			{
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				int32 sel = fDeviceList->CurrentSelection();
+				if (sel >= 0 && sel < (int32)fDevices.size()) {
+					auto& dev = fDevices[sel];
+					DeviceListItem* item = dynamic_cast<DeviceListItem*>(
+						fDeviceList->ItemAt(sel));
+					if (item) {
+						if (fFavorites.Contains(dev.fingerprint)) {
+							fFavorites.Remove(dev.fingerprint);
+							item->SetFavorite(false);
+						} else {
+							fFavorites.Add(dev.fingerprint);
+							item->SetFavorite(true);
+						}
+						fDeviceList->InvalidateItem(sel);
 					}
-					fDeviceList->InvalidateItem(sel);
 				}
 			}
+			_PostPeerStats();
 			break;
 		}
 
@@ -2148,14 +2916,21 @@ MainWindow::MessageReceived(BMessage* msg)
 
 		case kMsgSendDone:
 		{
+			// "quiet": esito intermedio di un invio alla cerchia. Registra
+			// solo la cronologia; status e barra li chiude kMsgCircleDone.
+			bool quiet = false;
+			msg->FindBool("quiet", &quiet);
+
 			const char* status = nullptr;
 			const char* checkSent = nullptr;
 			msg->FindString("status", &status);
 			bool ok = (msg->FindString("sent_file", &checkSent) == B_OK);
-			if (status)
-				fHeader->SetStatus(status, ok, !ok);
-			if (!fProgressBar->IsHidden())
-				fProgressBar->Hide();
+			if (!quiet) {
+				if (status)
+					fHeader->SetStatus(status, ok, !ok);
+				if (!fProgressBar->IsHidden())
+					fProgressBar->Hide();
+			}
 
 			// Cronologia: registra ogni file inviato.
 			const char* peer = nullptr;
@@ -2169,6 +2944,432 @@ MainWindow::MessageReceived(BMessage* msg)
 				fHistory.Add(true, sentFile,
 					peer ? peer : "?", totalSize);
 			}
+			break;
+		}
+
+		case kMsgSendToCircle:
+		{
+			// Dal file panel: refs presenti, invia subito.
+			entry_ref ref;
+			if (msg->FindRef("refs", &ref) == B_OK) {
+				std::vector<std::string> paths;
+				for (int i = 0;
+					msg->FindRef("refs", i, &ref) == B_OK; i++) {
+					BPath path(&ref);
+					if (path.InitCheck() == B_OK)
+						paths.push_back(path.Path());
+				}
+				if (!paths.empty())
+					SendToCircle(paths);
+				break;
+			}
+
+			// File pendenti (da CLI o drag&drop): usali subito.
+			if (!fPendingPaths.empty()) {
+				std::vector<std::string> paths = fPendingPaths;
+				fPendingPaths.clear();
+				SendToCircle(paths);
+				break;
+			}
+
+			// Altrimenti scegli i file: il panel riposta kMsgSendToCircle.
+			if (!fFilePanel) {
+				fFilePanel = new BFilePanel(B_OPEN_PANEL,
+					new BMessenger(this), NULL, B_FILE_NODE,
+					true, new BMessage(kMsgSendToCircle));
+				fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
+			} else {
+				fFilePanel->SetMessage(
+					new BMessage(kMsgSendToCircle));
+			}
+			fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON,
+				Tr(S_SEND_TO_CIRCLE));
+			fFilePanel->Show();
+			break;
+		}
+
+		case kMsgAddToBoard:
+		{
+			// Dall'app (drop sul replicant): pubblica i refs in bacheca.
+			entry_ref ref;
+			std::vector<std::string> paths;
+			for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++) {
+				BPath path(&ref);
+				if (path.InitCheck() == B_OK)
+					paths.push_back(path.Path());
+			}
+			if (!paths.empty())
+				AddToBoard(paths);
+			break;
+		}
+
+		case kMsgBoardRemove:
+		{
+			// Dalla BoardWindow: togli un singolo file dalla bacheca.
+			const char* path = nullptr;
+			msg->FindString("path", &path);
+			if (!path)
+				break;
+			bool removed = false;
+			{
+				std::lock_guard<std::mutex> lock(fSharedMtx);
+				for (auto it = fSharedFiles.begin();
+						it != fSharedFiles.end(); ++it) {
+					if (*it == path) {
+						fSharedFiles.erase(it);
+						removed = true;
+						break;
+					}
+				}
+			}
+			if (removed)
+				_BoardChanged();
+			break;
+		}
+
+		case kMsgShowBoard:
+		{
+			if (fBoardWinMsgr.IsValid()) {
+				// Gia' aperta: portala in primo piano.
+				fBoardWinMsgr.SendMessage(kMsgShowBoard);
+			} else {
+				BoardWindow* bw = new BoardWindow(BMessenger(this));
+				fBoardWinMsgr = BMessenger(bw);
+				bw->Show();
+				_PushBoardData();
+			}
+			break;
+		}
+
+		case kMsgBoardPickFiles:
+		{
+			// "Aggiungi file..." dalla BoardWindow: il panel riposta
+			// kMsgAddToBoard con i refs scelti.
+			if (!fFilePanel) {
+				fFilePanel = new BFilePanel(B_OPEN_PANEL,
+					new BMessenger(this), NULL, B_FILE_NODE,
+					true, new BMessage(kMsgAddToBoard));
+				fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
+			} else {
+				fFilePanel->SetMessage(new BMessage(kMsgAddToBoard));
+			}
+			fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_ADD_FILES));
+			fFilePanel->Show();
+			break;
+		}
+
+		case kMsgPeerBoardChanged:
+		{
+			const char* alias = nullptr;
+			const char* host = nullptr;
+			const char* fp = nullptr;
+			int32 rev = 0;
+			msg->FindString("alias", &alias);
+			msg->FindString("host", &host);
+			msg->FindString("fingerprint", &fp);
+			msg->FindInt32("rev", &rev);
+			if (!fp)
+				break;
+
+			if (rev <= 0) {
+				// Bacheca chiusa/svuotata dal peer.
+				fRemoteBoards.erase(fp);
+				_PushBoardData();
+				break;
+			}
+
+			// Fetch della lista in un thread: prepare-download (HTTP
+			// plain, porta 53318). Il fingerprint in query serve al
+			// filtro "solo preferiti" del peer.
+			std::string a = alias ? alias : "";
+			std::string h = host ? host : "";
+			std::string f = fp;
+			std::string myFp = fInfo->fingerprint;
+			std::thread([this, a, h, f, rev, myFp]() {
+				SocketHttpClient http;
+				std::string path = std::string(kApiPrepareDownload)
+					+ "?fingerprint=" + UrlEncode(myFp);
+				HttpResponse resp = http.Post(h, kDownloadPort, path,
+					"application/json", "");
+
+				BMessage out(kMsgRemoteBoardFetched);
+				out.AddString("alias", a.c_str());
+				out.AddString("host", h.c_str());
+				out.AddString("fingerprint", f.c_str());
+				out.AddInt32("rev", rev);
+				bool ok = resp.IsOk();
+				if (ok) {
+					try {
+						JsonValue root = JsonValue::Parse(resp.body);
+						if (root.Has("files")) {
+							for (const auto& kv
+									: root.At("files").Items()) {
+								FileMetadata fm
+									= FileMetadata::FromJson(kv.second);
+								std::string id = fm.id.empty()
+									? kv.first : fm.id;
+								out.AddString("fid", id.c_str());
+								out.AddString("fname",
+									fm.fileName.c_str());
+								out.AddString("ftype",
+									fm.fileType.c_str());
+								out.AddInt64("fsize", fm.size);
+							}
+						}
+					} catch (...) {
+						ok = false;
+					}
+				}
+				out.AddBool("ok", ok);
+				PostMessage(&out);
+			}).detach();
+			break;
+		}
+
+		case kMsgRemoteBoardFetched:
+		{
+			bool ok = false;
+			msg->FindBool("ok", &ok);
+			const char* fp = nullptr;
+			const char* alias = nullptr;
+			const char* host = nullptr;
+			int32 rev = 0;
+			msg->FindString("fingerprint", &fp);
+			msg->FindString("alias", &alias);
+			msg->FindString("host", &host);
+			msg->FindInt32("rev", &rev);
+			if (!fp)
+				break;
+
+			if (!ok) {
+				// Fetch fallito (server del peer non ancora su?):
+				// azzera la rev nota cosi' il prossimo annuncio
+				// periodico (max 5 s) fa scattare un nuovo tentativo.
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				for (auto& d : fDevices) {
+					if (d.fingerprint == fp) {
+						d.boardRev = -1;
+						break;
+					}
+				}
+				break;
+			}
+
+			RemoteBoard& rb = fRemoteBoards[fp];
+			rb.alias = alias ? alias : "?";
+			rb.host = host ? host : "";
+			rb.fingerprint = fp;
+			rb.rev = rev;
+			rb.files.clear();
+			for (int32 i = 0; ; i++) {
+				const char* id = nullptr;
+				if (msg->FindString("fid", i, &id) != B_OK)
+					break;
+				RemoteBoardFile rf;
+				rf.id = id;
+				const char* nm = nullptr;
+				if (msg->FindString("fname", i, &nm) == B_OK && nm)
+					rf.fileName = nm;
+				const char* ty = nullptr;
+				if (msg->FindString("ftype", i, &ty) == B_OK && ty)
+					rf.fileType = ty;
+				int64 sz = 0;
+				msg->FindInt64("fsize", i, &sz);
+				rf.size = sz;
+				rb.files.push_back(rf);
+			}
+			_PushBoardData();
+
+			if (!rb.files.empty()) {
+				char buf[128];
+				snprintf(buf, sizeof(buf), Tr(S_N_FILES_IN_BOARD),
+					(int)rb.files.size());
+				BNotification notif(B_INFORMATION_NOTIFICATION);
+				notif.SetGroup("LocalSend");
+				notif.SetTitle(rb.alias.c_str());
+				notif.SetContent(buf);
+				notif.Send();
+			}
+
+			// Auto-download dai preferiti: solo i file non ancora visti.
+			if (fSettings->autoDownloadBoard && fFavorites.Contains(fp)) {
+				for (const auto& rf : rb.files) {
+					if (fBoardSeen.Contains(BoardSeenKey(fp, rf.id,
+							rf.fileName, rf.size)))
+						continue;
+					BMessage dl(kMsgBoardDownload);
+					dl.AddString("host", rb.host.c_str());
+					dl.AddString("alias", rb.alias.c_str());
+					dl.AddString("fingerprint", fp);
+					dl.AddString("fileId", rf.id.c_str());
+					dl.AddString("fileName", rf.fileName.c_str());
+					dl.AddInt64("size", rf.size);
+					PostMessage(&dl);
+				}
+			}
+			break;
+		}
+
+		case kMsgBoardDownload:
+		{
+			const char* host = nullptr;
+			const char* alias = nullptr;
+			const char* fp = nullptr;
+			const char* fileId = nullptr;
+			const char* fileName = nullptr;
+			int64 size = 0;
+			msg->FindString("host", &host);
+			msg->FindString("alias", &alias);
+			msg->FindString("fingerprint", &fp);
+			msg->FindString("fileId", &fileId);
+			msg->FindString("fileName", &fileName);
+			msg->FindInt64("size", &size);
+			if (!host || !fileId)
+				break;
+
+			// Destinazione custom (drag negoziato su una cartella di
+			// Tracker) e apertura post-download (menu "Scarica e apri").
+			const char* destDirIn = nullptr;
+			const char* destNameIn = nullptr;
+			bool openAfter = false;
+			msg->FindString("destdir", &destDirIn);
+			msg->FindString("destname", &destNameIn);
+			msg->FindBool("open", &openAfter);
+
+			std::string h = host;
+			std::string a = alias ? alias : "?";
+			std::string f = fp ? fp : "";
+			std::string id = fileId;
+			std::string name = (destNameIn && *destNameIn)
+				? destNameIn
+				: ((fileName && *fileName) ? fileName : fileId);
+			std::string destDir = (destDirIn && *destDirIn)
+				? destDirIn : fSettings->destDir;
+			std::string myFp = fInfo->fingerprint;
+			// La chiave del registro usa il nome ORIGINALE del peer:
+			// deve restare stabile anche se il drop rinomina il file.
+			std::string seenKey = BoardSeenKey(f, id,
+				(fileName && *fileName) ? fileName : fileId, size);
+
+			std::thread([this, h, a, id, name, size, destDir, myFp,
+					seenKey, openAfter]() {
+				SocketHttpClient http;
+				std::string path = std::string(kApiDownload)
+					+ "?sessionId=board&fileId=" + UrlEncode(id)
+					+ "&fingerprint=" + UrlEncode(myFp);
+				HttpResponse resp = http.Get(h, kDownloadPort, path);
+
+				bool ok = resp.IsOk();
+				std::string finalName = name;
+				std::string full = destDir + "/" + finalName;
+				if (ok) {
+					// Evita di sovrascrivere: suffisso numerico.
+					int n = 2;
+					while (true) {
+						FILE* probe = fopen(full.c_str(), "rb");
+						if (!probe)
+							break;
+						fclose(probe);
+						finalName = name + " (" + std::to_string(n)
+							+ ")";
+						full = destDir + "/" + finalName;
+						n++;
+					}
+					FILE* out = fopen(full.c_str(), "wb");
+					if (out) {
+						fwrite(resp.body.data(), 1, resp.body.size(),
+							out);
+						fclose(out);
+					} else {
+						ok = false;
+					}
+				}
+
+				BMessage done(kMsgBoardDownloadDone);
+				done.AddBool("ok", ok);
+				done.AddString("name", finalName.c_str());
+				done.AddString("alias", a.c_str());
+				done.AddInt64("size", size);
+				done.AddString("seenkey", seenKey.c_str());
+				done.AddString("path", full.c_str());
+				done.AddBool("open", openAfter);
+				PostMessage(&done);
+			}).detach();
+			break;
+		}
+
+		case kMsgBoardDownloadDone:
+		{
+			bool ok = false;
+			msg->FindBool("ok", &ok);
+			const char* name = nullptr;
+			const char* alias = nullptr;
+			const char* seenKey = nullptr;
+			int64 size = 0;
+			msg->FindString("name", &name);
+			msg->FindString("alias", &alias);
+			msg->FindString("seenkey", &seenKey);
+			msg->FindInt64("size", &size);
+
+			if (ok && name) {
+				if (seenKey)
+					fBoardSeen.Add(seenKey);
+				fHistory.Add(false, name, alias ? alias : "?", size);
+
+				BString status(Tr(S_RECEIVED_COLON));
+				status << name;
+				fHeader->SetStatus(status.String(), true, false);
+
+				BNotification notif(B_INFORMATION_NOTIFICATION);
+				notif.SetGroup("LocalSend");
+				notif.SetTitle(Tr(S_FILE_RECEIVED));
+				notif.SetContent(name);
+				notif.Send();
+
+				// "Scarica e apri": lancia il file appena salvato con
+				// l'applicazione preferita del suo tipo.
+				bool openAfter = false;
+				msg->FindBool("open", &openAfter);
+				const char* fullPath = nullptr;
+				msg->FindString("path", &fullPath);
+				if (openAfter && fullPath) {
+					entry_ref ref;
+					if (get_ref_for_path(fullPath, &ref) == B_OK)
+						be_roster->Launch(&ref);
+				}
+			} else if (name) {
+				BNotification notif(B_ERROR_NOTIFICATION);
+				notif.SetGroup("LocalSend");
+				notif.SetTitle(name);
+				notif.SetContent(Tr(S_SEND_FAILED));
+				notif.Send();
+			}
+			break;
+		}
+
+		case kMsgCircleDone:
+		{
+			int32 ok = 0;
+			int32 total = 0;
+			msg->FindInt32("ok", &ok);
+			msg->FindInt32("total", &total);
+
+			char buf[160];
+			if (ok == total)
+				snprintf(buf, sizeof(buf), Tr(S_CIRCLE_SENT_OK), (int)ok);
+			else
+				snprintf(buf, sizeof(buf), Tr(S_CIRCLE_SENT_PARTIAL),
+					(int)ok, (int)total);
+			fHeader->SetStatus(buf, ok > 0, ok == 0);
+			if (!fProgressBar->IsHidden())
+				fProgressBar->Hide();
+
+			BNotification notif(ok == total
+				? B_INFORMATION_NOTIFICATION : B_ERROR_NOTIFICATION);
+			notif.SetGroup("LocalSend");
+			notif.SetTitle("LocalSend");
+			notif.SetContent(buf);
+			notif.Send();
 			break;
 		}
 
@@ -2336,9 +3537,13 @@ MainWindow::SendPendingOrBrowse()
 	if (!fFilePanel) {
 		fFilePanel = new BFilePanel(B_OPEN_PANEL, new BMessenger(this),
 			NULL, B_FILE_NODE, true, new BMessage(kMsgFileSelected));
-		fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_SEND_FILE));
 		fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
+	} else {
+		// Il panel e' condiviso con Share-link e cerchia: ripristina
+		// messaggio ed etichetta di questo flusso.
+		fFilePanel->SetMessage(new BMessage(kMsgFileSelected));
 	}
+	fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_SEND_FILE));
 	fFilePanel->Show();
 }
 
@@ -2482,15 +3687,130 @@ MainWindow::SendFiles(const std::string& host, int port,
 
 
 void
-MainWindow::StartDownloadServer(const std::vector<std::string>& files)
+MainWindow::SendToCircle(const std::vector<std::string>& paths)
+{
+	if (paths.empty())
+		return;
+
+	// Destinatari: i preferiti attualmente online. Copiati sotto lock,
+	// il thread di invio lavora sulla fotografia (un peer che sparisce
+	// durante il giro fallisce il suo invio, non il giro intero).
+	struct Target {
+		std::string alias;
+		std::string host;
+		int port;
+	};
+	std::vector<Target> targets;
+	{
+		std::lock_guard<std::mutex> lock(fDevicesMtx);
+		for (const auto& d : fDevices) {
+			if (fFavorites.Contains(d.fingerprint))
+				targets.push_back({d.alias, d.host, d.port});
+		}
+	}
+
+	if (targets.empty()) {
+		BAlert* alert = new BAlert("LocalSend",
+			Tr(S_NO_FAVORITES_ONLINE), Tr(S_OK),
+			NULL, NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
+		alert->Go();
+		return;
+	}
+
+	fHeader->SetStatus(Tr(S_SENDING));
+
+	// Un solo thread, invii sequenziali: una UploadSession per destinatario.
+	std::thread([this, targets, paths]() {
+		std::vector<FileMetadata> files;
+		for (size_t i = 0; i < paths.size(); i++) {
+			FileMetadata m;
+			std::string id = "file-" + std::to_string(i + 1);
+			if (BuildFileMetadata(paths[i], id, m))
+				files.push_back(m);
+		}
+		if (files.empty())
+			return;
+
+		long long totalSize = 0;
+		for (const auto& f : files)
+			totalSize += f.size;
+
+		int okCount = 0;
+		int n = (int)targets.size();
+		for (int t = 0; t < n; t++) {
+			const Target& tgt = targets[t];
+			{
+				BMessage prog(kMsgProgress);
+				prog.AddFloat("value", (float)t / (float)n);
+				BString label;
+				label << tgt.alias.c_str()
+					<< " (" << t + 1 << "/" << n << ")";
+				prog.AddString("label", label.String());
+				PostMessage(&prog);
+			}
+
+			SocketHttpClient http;
+			http.EnableTls();
+			UploadSession session(http, *fInfo);
+			SendReport report = session.Send(tgt.host, tgt.port,
+				files, "",
+				[this, t, n](long long sent, long long total) {
+					if (total <= 0)
+						return;
+					// Barra unica per tutto il giro: il
+					// destinatario t occupa la fetta [t/n, (t+1)/n).
+					BMessage prog(kMsgProgress);
+					float frac = (float)sent / (float)total;
+					prog.AddFloat("value",
+						((float)t + frac) / (float)n);
+					BString label;
+					label << t + 1 << "/" << n << " - "
+						<< (int)(frac * 100) << "%";
+					prog.AddString("label", label.String());
+					PostMessage(&prog);
+				});
+
+			if (report.AllSent())
+				okCount++;
+
+			// Cronologia per-destinatario: kMsgSendDone "quiet" registra
+			// i file inviati senza toccare status/barra (chiude tutto
+			// kMsgCircleDone a fine giro).
+			BMessage done(kMsgSendDone);
+			done.AddBool("quiet", true);
+			for (const auto& fo : report.files) {
+				if (fo.status == FileOutcome::Status::Sent)
+					done.AddString("sent_file", fo.fileName.c_str());
+			}
+			done.AddInt64("total_size", totalSize);
+			done.AddString("peer", tgt.alias.c_str());
+			PostMessage(&done);
+		}
+
+		BMessage end(kMsgCircleDone);
+		end.AddInt32("ok", okCount);
+		end.AddInt32("total", n);
+		PostMessage(&end);
+	}).detach();
+}
+
+
+void
+MainWindow::StartDownloadServer(const std::vector<std::string>& files,
+	bool showLinkUi)
 {
 	if (fDownloadActive)
 		StopDownloadServer();
 
-	fSharedFiles = files;
+	{
+		std::lock_guard<std::mutex> lock(fSharedMtx);
+		fSharedFiles = files;
+	}
 
 	// Pagina HTML con la lista dei file scaricabili.
-	fDownloadServer.Route("GET", "/", [this](const HttpRequest&) {
+	fDownloadServer.Route("GET", "/", [this](const HttpRequest& req) {
+		if (!_BoardAccessAllowed(req))
+			return HttpServerResponse::Empty(403);
 		BString html;
 		html << "<!DOCTYPE html><html><head>"
 			"<meta charset=\"utf-8\">"
@@ -2508,6 +3828,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 			"</style></head><body>"
 			"<h1>LocalSend</h1>"
 			"<p>Haiku Box</p>";
+		std::lock_guard<std::mutex> lock(fSharedMtx);
 		for (size_t i = 0; i < fSharedFiles.size(); i++) {
 			std::string name = fSharedFiles[i];
 			size_t slash = name.find_last_of('/');
@@ -2534,37 +3855,55 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 			html.String(), ""};
 	});
 
-	// Download del file.
+	// Download del file (link della pagina HTML: id = indice).
 	fDownloadServer.Route("GET", "/download",
 		[this](const HttpRequest& req) {
-		std::string idStr = req.Query("id");
-		int id = atoi(idStr.c_str());
-		if (id < 0 || id >= (int)fSharedFiles.size())
-			return HttpServerResponse::Empty(404);
+		if (!_BoardAccessAllowed(req))
+			return HttpServerResponse::Empty(403);
+		return _ServeSharedFile(atoi(req.Query("id").c_str()));
+	});
 
-		FILE* f = fopen(fSharedFiles[id].c_str(), "rb");
-		if (!f)
-			return HttpServerResponse::Empty(404);
-		fseek(f, 0, SEEK_END);
-		long size = ftell(f);
-		fseek(f, 0, SEEK_SET);
-		std::string body(size, '\0');
-		fread(&body[0], 1, size, f);
-		fclose(f);
+	// Info del dispositivo: usata dai client API prima del prepare-download.
+	fDownloadServer.Route("GET", kApiInfo, [this](const HttpRequest&) {
+		return HttpServerResponse::Json(200, fInfo->ToJson().Dump());
+	});
 
-		// Nome file per il Content-Disposition.
-		std::string name = fSharedFiles[id];
-		size_t slash = name.find_last_of('/');
-		if (slash != std::string::npos)
-			name = name.substr(slash + 1);
+	// prepare-download conforme a LocalSend v2.1 ("download mode"): info del
+	// dispositivo + sessionId fissa + mappa fileId -> metadati. E' l'endpoint
+	// che i peer (Fase 3) e i client ufficiali usano per sfogliare la bacheca.
+	fDownloadServer.Route("POST", kApiPrepareDownload,
+		[this](const HttpRequest& req) {
+		if (!_BoardAccessAllowed(req))
+			return HttpServerResponse::Empty(403);
+		JsonValue root = JsonValue::Object();
+		root["info"] = fInfo->ToJson();
+		root["sessionId"] = "board";
+		JsonValue filesJson = JsonValue::Object();
+		{
+			std::lock_guard<std::mutex> lock(fSharedMtx);
+			for (size_t i = 0; i < fSharedFiles.size(); i++) {
+				FileMetadata m;
+				std::string id = "file-" + std::to_string(i + 1);
+				if (BuildFileMetadata(fSharedFiles[i], id, m))
+					filesJson[id] = m.ToJson();
+			}
+		}
+		root["files"] = filesJson;
+		return HttpServerResponse::Json(200, root.Dump());
+	});
 
-		HttpServerResponse resp;
-		resp.status = 200;
-		resp.contentType = "application/octet-stream";
-		resp.extraHeaders = "Content-Disposition: attachment; filename=\""
-			+ name + "\"\r\n";
-		resp.body = std::move(body);
-		return resp;
+	// download conforme a LocalSend v2.1: fileId "file-N" -> indice N-1.
+	fDownloadServer.Route("GET", kApiDownload,
+		[this](const HttpRequest& req) {
+		if (!_BoardAccessAllowed(req))
+			return HttpServerResponse::Empty(403);
+		if (req.Query("sessionId") != "board")
+			return HttpServerResponse::Empty(403);
+		std::string fileId = req.Query("fileId");
+		int id = -1;
+		if (fileId.rfind("file-", 0) == 0)
+			id = atoi(fileId.c_str() + 5) - 1;
+		return _ServeSharedFile(id);
 	});
 
 	if (!fDownloadServer.Start(kDownloadPort)) {
@@ -2578,12 +3917,60 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 	fDownloadActive = true;
 	fDownloadThread = std::thread([this]() { fDownloadServer.Run(); });
 
-	// Trova l'IP locale per mostrare il link.
-	char hostname[256] = {};
-	gethostname(hostname, sizeof(hostname));
+	if (!showLinkUi) {
+		// Avvio silenzioso (drop in bacheca): niente finestra QR ne' link
+		// negli appunti. Status essenziale; badge del replicant e peer
+		// vengono avvisati da _BoardChanged.
+		int count;
+		{
+			std::lock_guard<std::mutex> lock(fSharedMtx);
+			count = (int)fSharedFiles.size();
+		}
+		char buf[64];
+		snprintf(buf, sizeof(buf), Tr(S_N_FILES_IN_BOARD), count);
+		fHeader->SetStatus(buf, true, false);
+		_BoardChanged();
+		return;
+	}
+
+	// Costruisci il link con l'IPv4 dell'interfaccia LAN: gli hostname
+	// (gethostname) non si risolvono sulla LAN da telefoni/altri PC,
+	// il QR scansionato punterebbe a un nome inesistente. Trucco: un
+	// socket UDP "connesso" (senza inviare) al gruppo multicast
+	// LocalSend fa scegliere al kernel l'IP sorgente giusto per la
+	// LAN, senza dipendenze da getifaddrs (assente su Haiku). Fallback
+	// al hostname solo se il trucco fallisce.
+	BString host;
+	{
+		int probe = socket(AF_INET, SOCK_DGRAM, 0);
+		if (probe >= 0) {
+			sockaddr_in dest{};
+			dest.sin_family = AF_INET;
+			dest.sin_addr.s_addr = inet_addr(kMulticastGroup);
+			dest.sin_port = htons(kDefaultPort);
+			if (connect(probe, (sockaddr*)&dest, sizeof(dest)) == 0) {
+				sockaddr_in local{};
+				socklen_t len = sizeof(local);
+				if (getsockname(probe, (sockaddr*)&local, &len) == 0
+						&& local.sin_addr.s_addr != 0) {
+					char buf[INET_ADDRSTRLEN] = {0};
+					if (inet_ntop(AF_INET, &local.sin_addr, buf,
+							sizeof(buf)) != nullptr) {
+						host = buf;
+					}
+				}
+			}
+			close(probe);
+		}
+	}
+	if (host.IsEmpty()) {
+		char hostname[256] = {};
+		gethostname(hostname, sizeof(hostname));
+		host = hostname;
+	}
 
 	BString url;
-	url << "http://" << hostname << ":" << kDownloadPort;
+	url << "http://" << host << ":" << kDownloadPort;
 
 	BString status;
 	char buf[256];
@@ -2608,6 +3995,8 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files)
 	ShareLinkWindow* w = new ShareLinkWindow(status, url,
 		BMessenger(this));
 	w->Show();
+
+	_BoardChanged();
 }
 
 
@@ -2620,7 +4009,187 @@ MainWindow::StopDownloadServer()
 	if (fDownloadThread.joinable())
 		fDownloadThread.join();
 	fDownloadActive = false;
-	fSharedFiles.clear();
+	{
+		std::lock_guard<std::mutex> lock(fSharedMtx);
+		fSharedFiles.clear();
+	}
+	_BoardChanged();
+}
+
+
+void
+MainWindow::AddToBoard(const std::vector<std::string>& paths)
+{
+	if (paths.empty())
+		return;
+
+	// Server fermo: primo drop, avvia la bacheca con questi file, in
+	// silenzio (niente finestra QR: quella e' del flusso Share-via-link).
+	// StartDownloadServer chiama gia' _BoardChanged a fine avvio.
+	if (!fDownloadActive) {
+		StartDownloadServer(paths, false);
+		return;
+	}
+
+	// Server attivo: accoda i nuovi path (dedupe) e notifica il cambio.
+	bool changed = false;
+	{
+		std::lock_guard<std::mutex> lock(fSharedMtx);
+		for (const auto& p : paths) {
+			bool dup = false;
+			for (const auto& s : fSharedFiles) {
+				if (s == p) {
+					dup = true;
+					break;
+				}
+			}
+			if (!dup) {
+				fSharedFiles.push_back(p);
+				changed = true;
+			}
+		}
+	}
+	if (changed)
+		_BoardChanged();
+}
+
+
+HttpServerResponse
+MainWindow::_ServeSharedFile(int id)
+{
+	// Copia il path sotto lock, poi leggi il file fuori dal lock: il
+	// fread di un file grosso non deve bloccare le mutazioni della bacheca.
+	std::string path;
+	{
+		std::lock_guard<std::mutex> lock(fSharedMtx);
+		if (id < 0 || id >= (int)fSharedFiles.size())
+			return HttpServerResponse::Empty(404);
+		path = fSharedFiles[id];
+	}
+
+	FILE* f = fopen(path.c_str(), "rb");
+	if (!f)
+		return HttpServerResponse::Empty(404);
+	fseek(f, 0, SEEK_END);
+	long size = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	std::string body(size, '\0');
+	fread(&body[0], 1, size, f);
+	fclose(f);
+
+	// Nome file per il Content-Disposition.
+	std::string name = path;
+	size_t slash = name.find_last_of('/');
+	if (slash != std::string::npos)
+		name = name.substr(slash + 1);
+
+	HttpServerResponse resp;
+	resp.status = 200;
+	resp.contentType = "application/octet-stream";
+	resp.extraHeaders = "Content-Disposition: attachment; filename=\""
+		+ name + "\"\r\n";
+	resp.body = std::move(body);
+	return resp;
+}
+
+
+void
+MainWindow::_BoardChanged()
+{
+	int count;
+	{
+		std::lock_guard<std::mutex> lock(fSharedMtx);
+		count = (int)fSharedFiles.size();
+	}
+	fBoardRev++;
+
+	BMessage m(kMsgBoardChanged);
+	m.AddInt32("rev", fBoardRev);
+	m.AddBool("active", fDownloadActive);
+	m.AddInt32("count", count);
+	be_app->PostMessage(&m);
+
+	_PushBoardData();
+}
+
+
+void
+MainWindow::_PushBoardData()
+{
+	if (!fBoardWinMsgr.IsValid())
+		return;
+
+	BMessage data(kMsgBoardDataChanged);
+
+	// La mia bacheca: nome (display) + path pieno (icona e drag-out).
+	{
+		std::lock_guard<std::mutex> lock(fSharedMtx);
+		for (const auto& p : fSharedFiles) {
+			std::string name = p;
+			size_t slash = name.find_last_of('/');
+			if (slash != std::string::npos)
+				name = name.substr(slash + 1);
+			data.AddString("my", name.c_str());
+			data.AddString("mypath", p.c_str());
+		}
+	}
+
+	// Bacheche remote: array paralleli, un elemento per file.
+	for (const auto& kv : fRemoteBoards) {
+		const RemoteBoard& rb = kv.second;
+		for (const auto& f : rb.files) {
+			data.AddString("ralias", rb.alias.c_str());
+			data.AddString("rhost", rb.host.c_str());
+			data.AddString("rfp", rb.fingerprint.c_str());
+			data.AddString("rid", f.id.c_str());
+			data.AddString("rname", f.fileName.c_str());
+			data.AddString("rtype", f.fileType.c_str());
+			data.AddInt64("rsize", f.size);
+		}
+	}
+
+	fBoardWinMsgr.SendMessage(&data);
+}
+
+
+bool
+MainWindow::_BoardAccessAllowed(const HttpRequest& req)
+{
+	if (!fSettings->boardFavoritesOnly)
+		return true;
+
+	// Peer Haiku: manda il proprio fingerprint in query (estensione).
+	std::string fp = req.Query("fingerprint");
+	if (!fp.empty() && fFavorites.Contains(fp))
+		return true;
+
+	// Fallback (browser di un preferito): IP di un preferito online.
+	std::lock_guard<std::mutex> lock(fDevicesMtx);
+	for (const auto& d : fDevices) {
+		if (d.host == req.clientHost && fFavorites.Contains(d.fingerprint))
+			return true;
+	}
+	return false;
+}
+
+
+void
+MainWindow::_PostPeerStats()
+{
+	int32 online = 0;
+	int32 favOnline = 0;
+	{
+		std::lock_guard<std::mutex> lock(fDevicesMtx);
+		online = (int32)fDevices.size();
+		for (const auto& d : fDevices) {
+			if (fFavorites.Contains(d.fingerprint))
+				favOnline++;
+		}
+	}
+	BMessage m(kMsgPeerStats);
+	m.AddInt32("online", online);
+	m.AddInt32("favonline", favOnline);
+	be_app->PostMessage(&m);
 }
 
 
@@ -2641,12 +4210,25 @@ public:
 	void SetStartHidden(bool v) { fStartHidden = v; }
 
 private:
+	// Ritrasmette lo stato corrente (bacheca + peer) a tutti i replicant
+	// iscritti; rimuove chi non e' piu' raggiungibile.
+	void _BroadcastState();
+
 	AppSettings fSettings;
 	DeviceInfo fInfo;
 	TlsIdentity fTls;
 	MulticastAnnouncer* fAnnouncer;
 	MainWindow* fWindow;
 	bool fStartHidden = false;
+
+	// Canale replicant (Fase 0): iscritti via kMsgReplicantSubscribe e
+	// ultimo snapshot noto di bacheca/peer, inviato con kMsgBoardUpdate.
+	std::vector<BMessenger> fSubscribers;
+	int32 fBoardRev = 0;
+	int32 fBoardCount = 0;
+	bool fBoardActive = false;
+	int32 fPeersOnline = 0;
+	int32 fFavsOnline = 0;
 };
 
 
@@ -2709,6 +4291,7 @@ LocalSendApp::ReadyToRun()
 			dev.port = p.port;
 			dev.deviceType = p.deviceType;
 			dev.fingerprint = p.fingerprint;
+			dev.boardRev = p.boardRev;
 			fWindow->AddDevice(dev);
 		});
 	fAnnouncer->Start();
@@ -2747,9 +4330,136 @@ LocalSendApp::ArgvReceived(int32 argc, char** argv)
 
 
 void
+LocalSendApp::_BroadcastState()
+{
+	BMessage upd(kMsgBoardUpdate);
+	upd.AddInt32("rev", fBoardRev);
+	upd.AddInt32("count", fBoardCount);
+	upd.AddBool("active", fBoardActive);
+	upd.AddInt32("peers", fPeersOnline);
+	upd.AddInt32("favonline", fFavsOnline);
+
+	// Chi non risponde piu' (es. Tracker riavviato senza ripristinare il
+	// replicant) esce dalla lista: nessun retry, si re-iscrivera' da solo.
+	for (auto it = fSubscribers.begin(); it != fSubscribers.end();) {
+		if (it->SendMessage(&upd) != B_OK)
+			it = fSubscribers.erase(it);
+		else
+			++it;
+	}
+}
+
+
+void
 LocalSendApp::MessageReceived(BMessage* msg)
 {
 	switch (msg->what) {
+		case kMsgReplicantSubscribe:
+		{
+			BMessenger target;
+			if (msg->FindMessenger("target", &target) != B_OK)
+				return;
+			bool present = false;
+			for (const auto& m : fSubscribers) {
+				if (m == target) {
+					present = true;
+					break;
+				}
+			}
+			if (!present)
+				fSubscribers.push_back(target);
+			// Il nuovo iscritto riceve subito lo stato corrente.
+			_BroadcastState();
+			return;
+		}
+
+		case kMsgReplicantUnsubscribe:
+		{
+			BMessenger target;
+			if (msg->FindMessenger("target", &target) != B_OK)
+				return;
+			for (auto it = fSubscribers.begin();
+					it != fSubscribers.end(); ++it) {
+				if (*it == target) {
+					fSubscribers.erase(it);
+					break;
+				}
+			}
+			return;
+		}
+
+		case kMsgBoardChanged:
+		{
+			// Dalla MainWindow: bacheca cambiata. Aggiorna l'annuncio
+			// multicast (boardRev + download) e avvisa subito LAN e
+			// replicant iscritti.
+			int32 rev = 0;
+			int32 count = 0;
+			bool active = false;
+			msg->FindInt32("rev", &rev);
+			msg->FindInt32("count", &count);
+			msg->FindBool("active", &active);
+			fBoardRev = rev;
+			fBoardCount = count;
+			fBoardActive = active;
+			fInfo.boardRev = (int)rev;
+			fInfo.download = active;
+			if (fAnnouncer != nullptr) {
+				fAnnouncer->SetBoard((int)rev, active);
+				fAnnouncer->TriggerBurst();
+			}
+			_BroadcastState();
+			return;
+		}
+
+		case kMsgPeerStats:
+		{
+			msg->FindInt32("online", &fPeersOnline);
+			msg->FindInt32("favonline", &fFavsOnline);
+			_BroadcastState();
+			return;
+		}
+
+		case kMsgStopShare:
+		{
+			// Dal menu del replicant desktop: ferma/svuota la bacheca.
+			// Inoltrato alla window, che possiede il download server.
+			if (fWindow != nullptr)
+				fWindow->PostMessage(kMsgStopShare);
+			return;
+		}
+
+		case kMsgReplicantDrop:
+		{
+			// Drop di file sul replicant. Default: pubblica in bacheca;
+			// con "circle" true (Shift al drop) invia subito alla cerchia.
+			if (fWindow == nullptr)
+				return;
+			bool circle = false;
+			msg->FindBool("circle", &circle);
+			BMessage fwd(circle ? kMsgSendToCircle : kMsgAddToBoard);
+			entry_ref ref;
+			for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++)
+				fwd.AddRef("refs", &ref);
+			fWindow->PostMessage(&fwd);
+			return;
+		}
+
+		case kMsgOpenBoard:
+		{
+			// Click sul replicant desktop: GUI in primo piano + Bacheca.
+			if (fWindow != nullptr && fWindow->LockLooper()) {
+				if (fWindow->IsHidden())
+					fWindow->Show();
+				fWindow->Activate(true);
+				fWindow->UnlockLooper();
+				fWindow->PostMessage(kMsgShowBoard);
+			}
+			if (fAnnouncer != nullptr)
+				fAnnouncer->TriggerBurst();
+			return;
+		}
+
 		case B_SILENT_RELAUNCH:
 		{
 			// Click sul replicant Deskbar (o riavvio singolo): se la
