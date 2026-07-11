@@ -14,6 +14,10 @@ DeviceInfo::ToJson() const
 	v["port"] = port;
 	v["protocol"] = protocol;
 	v["download"] = download;
+	// Estensione Haiku (bacheca): solo se presente, per non toccare i
+	// payload standard quando la bacheca non e' mai stata usata.
+	if (boardRev > 0)
+		v["boardRev"] = boardRev;
 	return v;
 }
 
@@ -38,6 +42,8 @@ DeviceInfo::FromJson(const JsonValue& v)
 		d.protocol = v.At("protocol").AsString(d.protocol);
 	if (v.Has("download"))
 		d.download = v.At("download").AsBool(d.download);
+	if (v.Has("boardRev"))
+		d.boardRev = static_cast<int>(v.At("boardRev").AsInt(0));
 	return d;
 }
 

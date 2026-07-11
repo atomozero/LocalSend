@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -24,6 +25,8 @@ public:
 		std::string host;
 		int port = 0;
 		std::string deviceType;
+		// Estensione Haiku: revisione della bacheca del peer (0 = nessuna).
+		int boardRev = 0;
 	};
 	using PeerHeardCallback = std::function<void(const Peer&)>;
 
@@ -46,9 +49,18 @@ public:
 	// forzare le risposte unicast immediate dai peer gia' attivi.
 	void TriggerBurst();
 
+	// Aggiorna a caldo la parte "bacheca" del DeviceInfo annunciato
+	// (boardRev + flag download). Thread-safe: il prossimo annuncio
+	// (tick periodico o TriggerBurst) esce gia' con i valori nuovi.
+	void SetBoard(int boardRev, bool downloadActive);
+
 private:
 	void Run();
+	// Serializza l'annuncio corrente sotto lock (fInfo puo' cambiare
+	// via SetBoard mentre il thread invia).
+	std::string _AnnounceJson(bool announce);
 
+	std::mutex fInfoMtx;
 	DeviceInfo fInfo;
 	int fFd;
 	std::atomic<bool> fRunning;

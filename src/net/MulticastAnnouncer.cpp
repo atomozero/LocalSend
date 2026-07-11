@@ -113,11 +113,28 @@ MulticastAnnouncer::TriggerBurst()
 	groupAddr.sin_family = AF_INET;
 	groupAddr.sin_addr.s_addr = inet_addr(kMulticastGroup);
 	groupAddr.sin_port = htons(kDefaultPort);
-	JsonValue ann = fInfo.ToJson();
-	ann["announce"] = true;
-	std::string annMsg = ann.Dump();
+	std::string annMsg = _AnnounceJson(true);
 	sendto(fFd, annMsg.data(), annMsg.size(), 0,
 		(sockaddr*)&groupAddr, sizeof(groupAddr));
+}
+
+
+void
+MulticastAnnouncer::SetBoard(int boardRev, bool downloadActive)
+{
+	std::lock_guard<std::mutex> lock(fInfoMtx);
+	fInfo.boardRev = boardRev;
+	fInfo.download = downloadActive;
+}
+
+
+std::string
+MulticastAnnouncer::_AnnounceJson(bool announce)
+{
+	std::lock_guard<std::mutex> lock(fInfoMtx);
+	JsonValue v = fInfo.ToJson();
+	v["announce"] = announce;
+	return v.Dump();
 }
 
 
@@ -129,14 +146,21 @@ MulticastAnnouncer::Run()
 	groupAddr.sin_addr.s_addr = inet_addr(kMulticastGroup);
 	groupAddr.sin_port = htons(kDefaultPort);
 
-	// Prepara il JSON dell'annuncio (announce: true).
-	JsonValue ann = fInfo.ToJson();
-	ann["announce"] = true;
-	std::string annMsg = ann.Dump();
+	// Il fingerprint non cambia mai dopo Start: copia locale, letta senza
+	// lock nel loop. Il resto dell'annuncio invece va ricomposto a ogni
+	// invio: SetBoard puo' cambiarlo a runtime.
+	std::string selfFingerprint;
+	{
+		std::lock_guard<std::mutex> lock(fInfoMtx);
+		selfFingerprint = fInfo.fingerprint;
+	}
 
 	// Annuncio iniziale immediato.
-	sendto(fFd, annMsg.data(), annMsg.size(), 0,
-		(sockaddr*)&groupAddr, sizeof(groupAddr));
+	{
+		std::string annMsg = _AnnounceJson(true);
+		sendto(fFd, annMsg.data(), annMsg.size(), 0,
+			(sockaddr*)&groupAddr, sizeof(groupAddr));
+	}
 
 	while (fRunning) {
 		fd_set readSet;
@@ -168,7 +192,7 @@ MulticastAnnouncer::Run()
 				JsonValue msg = JsonValue::Parse(std::string(buf, n));
 				if (msg.Has("fingerprint")
 					&& msg.At("fingerprint").AsString()
-						== fInfo.fingerprint) {
+						== selfFingerprint) {
 					continue;
 				}
 
@@ -186,6 +210,10 @@ MulticastAnnouncer::Run()
 					p.deviceType = msg.Has("deviceType")
 						? msg.At("deviceType").AsString()
 						: std::string("unknown");
+					if (msg.Has("boardRev")) {
+						p.boardRev = static_cast<int>(
+							msg.At("boardRev").AsInt(0));
+					}
 					fPeerCb(p);
 				}
 
@@ -193,9 +221,7 @@ MulticastAnnouncer::Run()
 				// announce=false in unicast.
 				if (msg.Has("announce")
 					&& msg.At("announce").AsBool(false)) {
-					JsonValue reply = fInfo.ToJson();
-					reply["announce"] = false;
-					std::string replyMsg = reply.Dump();
+					std::string replyMsg = _AnnounceJson(false);
 					sendto(fFd, replyMsg.data(), replyMsg.size(), 0,
 						(sockaddr*)&from, sizeof(from));
 				}
@@ -205,7 +231,9 @@ MulticastAnnouncer::Run()
 		}
 
 		if (ready == 0) {
-			// Timeout: invia annuncio periodico.
+			// Timeout: invia annuncio periodico (ricomposto: la bacheca
+			// puo' essere cambiata via SetBoard).
+			std::string annMsg = _AnnounceJson(true);
 			sendto(fFd, annMsg.data(), annMsg.size(), 0,
 				(sockaddr*)&groupAddr, sizeof(groupAddr));
 		}

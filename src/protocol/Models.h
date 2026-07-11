@@ -22,6 +22,10 @@ struct DeviceInfo {
 	int port = 53317;
 	std::string protocol = "http";      // "https" da L3
 	bool download = false;
+	// Estensione Haiku: revisione della bacheca condivisa (0 = nessuna).
+	// Emesso nel JSON solo se > 0; i client LocalSend ufficiali ignorano
+	// i campi sconosciuti, quindi l'annuncio resta compatibile.
+	int boardRev = 0;
 
 	JsonValue ToJson() const;
 	// Lato ricevente (L1): legge il blocco "info" inviato dal mittente.
