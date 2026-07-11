@@ -45,10 +45,12 @@ GUI_SRC = $(PROTO) \
 	src/server/FileSink.cpp \
 	src/server/ReceiveSession.cpp \
 	src/app/DeskbarItem.cpp \
+	src/replicant/DesktopReplicant.cpp \
 	src/app/main_gui.cpp
 
 ADDON_SRC = src/addon/TrackerAddon.cpp
 REPLICANT_SRC = src/replicant/DeskbarReplicant.cpp
+DESKTOP_SRC = src/replicant/DesktopReplicant.cpp
 
 SEND_OBJ = $(SEND_SRC:.cpp=.o)
 RECV_OBJ = $(RECV_SRC:.cpp=.o)
@@ -58,8 +60,9 @@ RECV_BIN = localsend-receive
 GUI_BIN  = LocalSend
 ADDON_BIN = Send_with_LocalSend
 REPLICANT_BIN = LocalSendDeskbar
+DESKTOP_BIN = LocalSendDesktop
 
-all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) addon $(REPLICANT_BIN)
+all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) addon $(REPLICANT_BIN) $(DESKTOP_BIN)
 
 $(SEND_BIN): $(SEND_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS) $(SSL_LIBS)
@@ -88,6 +91,17 @@ $(REPLICANT_BIN): $(REPLICANT_SRC) src/replicant/Replicant.rdef
 	xres -o $@ replicant.rsrc
 	mimeset -f $@
 
+# Replicant desktop (.so caricato dallo shelf del desktop di Tracker).
+# Stessa meccanica del Deskbar replicant: signature propria nel campo
+# "add_on" dell'archive, cosi' Tracker ricarica l'add-on al ripristino.
+# La stessa classe e' compilata anche nella GUI (GUI_SRC) per l'anteprima
+# trascinabile nelle Impostazioni.
+$(DESKTOP_BIN): $(DESKTOP_SRC) src/replicant/DesktopReplicant.rdef
+	$(CXX) $(CXXFLAGS) -fPIC -shared -o $@ $(DESKTOP_SRC) -lbe
+	rc -o desktop.rsrc src/replicant/DesktopReplicant.rdef
+	xres -o $@ desktop.rsrc
+	mimeset -f $@
+
 install-addon: addon
 	mkdir -p "/boot/home/config/non-packaged/add-ons/Tracker"
 	cp "Send with LocalSend" "/boot/home/config/non-packaged/add-ons/Tracker/"
@@ -98,7 +112,7 @@ install-addon: addon
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc $(REPLICANT_BIN) replicant.rsrc test-receive-bin
+	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc $(REPLICANT_BIN) replicant.rsrc $(DESKTOP_BIN) desktop.rsrc test-receive-bin test-board-bin
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
 # socket, compilabile e runnabile ovunque (non solo Haiku). Niente -lnetwork.
@@ -111,4 +125,16 @@ test-receive:
 	$(CXX) $(CXXFLAGS) -o test-receive-bin $(RECV_TEST_SRC)
 	./test-receive-bin
 
-.PHONY: all clean test-receive addon install-addon
+# Test host-side della bacheca (L6): estensione boardRev dell'annuncio e
+# simmetria prepare-download pubblicante <-> osservatore. Solo protocollo,
+# nessun socket: gira ovunque.
+BOARD_TEST_SRC = $(PROTO) tools/check/test_board.cpp
+
+test-board:
+	$(CXX) $(CXXFLAGS) -o test-board-bin $(BOARD_TEST_SRC)
+	./test-board-bin
+
+# Tutti i test host-side.
+check: test-receive test-board
+
+.PHONY: all clean test-receive test-board check addon install-addon

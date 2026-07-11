@@ -1,0 +1,20 @@
+/*
+ * Risorse del replicant desktop LocalSend.
+ * Signature MIME propria: lo shelf del desktop (Tracker), archiviando la
+ * view, registra il campo "add_on" e usa quel valore per ricaricare
+ * questo .so a ogni avvio quando ripristina il desktop.
+ */
+
+resource app_signature "application/x-vnd.LocalSend-Desktop";
+
+resource app_flags B_SINGLE_LAUNCH;
+
+resource app_version {
+	major  = 1,
+	middle = 0,
+	minor  = 0,
+	variety = B_APPV_FINAL,
+	internal = 0,
+	short_info = "LocalSend Desktop",
+	long_info = "LocalSend desktop drop-zone replicant for Haiku"
+};
