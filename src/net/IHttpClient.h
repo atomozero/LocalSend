@@ -24,6 +24,11 @@ class IHttpClient {
 public:
 	virtual ~IHttpClient() {}
 
+	// GET semplice con risposta in memoria. Usato dalla bacheca (L6) per
+	// leggere lista e byte dei file pubblicati dai peer.
+	virtual HttpResponse Get(const std::string& host, int port,
+		const std::string& path) = 0;
+
 	// POST con body in memoria. 'path' include gia' l'eventuale query string.
 	virtual HttpResponse Post(const std::string& host, int port,
 		const std::string& path, const std::string& contentType,

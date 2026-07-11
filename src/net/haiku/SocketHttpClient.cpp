@@ -241,6 +241,78 @@ SocketHttpClient::EnableTls()
 
 
 HttpResponse
+SocketHttpClient::Get(const std::string& host, int port,
+	const std::string& path)
+{
+	HttpResponse fail;
+	int fd = ConnectTo(host, port);
+	if (fd < 0)
+		return fail;
+
+	SSL* ssl = nullptr;
+	ReadFn readFn;
+	WriteFn writeFn;
+
+	if (fSslCtx) {
+		ssl = SSL_new(static_cast<SSL_CTX*>(fSslCtx));
+		SSL_set_fd(ssl, fd);
+		if (SSL_connect(ssl) <= 0) {
+			SSL_free(ssl);
+			close(fd);
+			return fail;
+		}
+		readFn = [ssl](char* buf, size_t len) -> ssize_t {
+			return static_cast<ssize_t>(
+				SSL_read(ssl, buf, static_cast<int>(len)));
+		};
+		writeFn = [ssl](const char* data, size_t len) -> bool {
+			size_t sent = 0;
+			while (sent < len) {
+				int chunk = static_cast<int>(
+					len - sent > 16384 ? 16384 : len - sent);
+				int n = SSL_write(ssl, data + sent, chunk);
+				if (n <= 0)
+					return false;
+				sent += static_cast<size_t>(n);
+			}
+			return true;
+		};
+	} else {
+		readFn = [fd](char* buf, size_t len) -> ssize_t {
+			return recv(fd, buf, len, 0);
+		};
+		writeFn = [fd](const char* data, size_t len) -> bool {
+			size_t sent = 0;
+			while (sent < len) {
+				ssize_t n = send(fd, data + sent, len - sent, 0);
+				if (n <= 0)
+					return false;
+				sent += static_cast<size_t>(n);
+			}
+			return true;
+		};
+	}
+
+	char head[1024];
+	snprintf(head, sizeof(head),
+		"GET %s HTTP/1.1\r\n"
+		"Host: %s:%d\r\n"
+		"Connection: close\r\n"
+		"\r\n",
+		path.c_str(), host.c_str(), port);
+	bool okHead = writeFn(head, strlen(head));
+	HttpResponse resp = okHead ? ReadResponse(readFn) : fail;
+
+	if (ssl) {
+		SSL_shutdown(ssl);
+		SSL_free(ssl);
+	}
+	close(fd);
+	return resp;
+}
+
+
+HttpResponse
 SocketHttpClient::Post(const std::string& host, int port,
 	const std::string& path, const std::string& contentType,
 	const std::string& body)

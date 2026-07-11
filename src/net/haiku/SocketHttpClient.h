@@ -19,6 +19,9 @@ public:
 	// protocollo LocalSend).
 	void EnableTls();
 
+	HttpResponse Get(const std::string& host, int port,
+		const std::string& path) override;
+
 	HttpResponse Post(const std::string& host, int port,
 		const std::string& path, const std::string& contentType,
 		const std::string& body) override;
