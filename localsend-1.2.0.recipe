@@ -1,0 +1,78 @@
+SUMMARY="Share files over LAN with any device running LocalSend"
+DESCRIPTION="Native Haiku client for the LocalSend v2.1 protocol. Share \
+files and text messages over LAN with any device (Android, iOS, Windows, \
+macOS, Linux) running LocalSend, without internet and without third-party \
+servers. Includes a GUI application with device discovery, drag & drop, \
+transfer history, favorites, share-via-link, a shared board with real-time \
+updates across Haiku peers (publish files by dropping them on a desktop \
+replicant; circle members see them instantly and can download or auto-sync \
+them), one-drop sending to all online favorites, a Tracker \"Send with \
+LocalSend\" add-on, and optional Deskbar and desktop replicants."
+HOMEPAGE="https://github.com/atomozero/LocalSend"
+COPYRIGHT="2026 atomozero"
+LICENSE="MIT"
+REVISION="1"
+SOURCE_URI="https://github.com/atomozero/LocalSend/archive/refs/tags/v$portVersion.tar.gz"
+CHECKSUM_SHA256=""
+SOURCE_DIR="LocalSend-$portVersion"
+
+ARCHITECTURES="x86_64"
+
+PROVIDES="
+	localsend = $portVersion
+	app:LocalSend = $portVersion
+	cmd:localsend_send = $portVersion
+	cmd:localsend_receive = $portVersion
+	"
+REQUIRES="
+	haiku
+	lib:libcrypto
+	lib:libqrencode
+	lib:libssl
+	"
+
+BUILD_REQUIRES="
+	haiku_devel
+	devel:libcrypto
+	devel:libqrencode
+	devel:libssl
+	"
+BUILD_PREREQUIRES="
+	cmd:g++$secondaryArchSuffix
+	cmd:make
+	"
+
+BUILD()
+{
+	make $jobArgs
+}
+
+INSTALL()
+{
+	# GUI application + replicants (.so loaded by Deskbar / Tracker desktop
+	# shelf). The replicant binaries must sit next to the app: the Deskbar
+	# one is resolved relative to the app image path, the desktop one is
+	# found through the MIME database (mimeset runs at build time; the
+	# installed copies are re-registered by the post-install mimeset pass).
+	mkdir -p $appsDir
+	cp LocalSend $appsDir/LocalSend
+	cp LocalSendDeskbar $appsDir/LocalSendDeskbar
+	cp LocalSendDesktop $appsDir/LocalSendDesktop
+
+	# CLI tools.
+	mkdir -p $binDir
+	cp localsend-send $binDir/localsend-send
+	cp localsend-receive $binDir/localsend-receive
+
+	# Tracker add-on: "Send with LocalSend" entry in the file context menu.
+	mkdir -p $addOnsDir/Tracker
+	cp "Send with LocalSend" "$addOnsDir/Tracker/Send with LocalSend"
+
+	# Deskbar launcher link.
+	addAppDeskbarSymlink $appsDir/LocalSend
+}
+
+TEST()
+{
+	make check
+}

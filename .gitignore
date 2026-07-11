@@ -14,10 +14,26 @@ build/
 *.o
 /localsend-send
 /localsend-receive
+/LocalSend
+/LocalSendDeskbar
+/LocalSendDesktop
+/Send with LocalSend
+*.rsrc
 test-receive-bin
+test-board-bin
+
+# Pacchetti e archivi generati
+*.hpkg
+*.zip
 
 # Fingerprint generato a runtime
 localsend_fingerprint
+
+# Stato runtime (impostazioni, cronologia, preferiti, registro bacheca)
+localsend_settings
+localsend_history
+localsend_favorites
+localsend_board_seen
 
 # File ricevuti a runtime (cartella di default del ricevente)
 /ricevuti/
