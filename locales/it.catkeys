@@ -1,0 +1,69 @@
+1	it	x-vnd.LocalSend	2709370803
+Received: 	LocalSend		Ricevuto: 
+Device name:	LocalSend		Nome dispositivo:
+Send text…	LocalSend		Invia testo…
+PIN (empty = none):	LocalSend		PIN (vuoto = nessuno):
+Stop sharing	LocalSend		Ferma condivisione
+Save to file	LocalSend		Salva su file
+Cancel	LocalSend		Annulla
+My board	LocalSend		La mia bacheca
+Download all	LocalSend		Scarica tutto
+Remove from Deskbar	LocalSend		Rimuovi dal Deskbar
+General	LocalSend		Generale
+Sent to %d of %d devices	LocalSend		Inviato a %d su %d dispositivi
+Message received	LocalSend		Messaggio ricevuto
+Reject	LocalSend		Rifiuta
+Integration	LocalSend		Integrazione
+Save folder:	LocalSend		Cartella di salvataggio:
+Settings	LocalSend		Impostazioni
+Copy	LocalSend		Copia
+Download	LocalSend		Scarica
+Clear history	LocalSend		Cancella cronologia
+Port change will take effect after restart.	LocalSend		La porta cambiata sara' attiva al prossimo avvio.
+Quit	LocalSend		Esci
+Sending…	LocalSend		Invio in corso…
+Choose files to send	LocalSend		Scegli file da inviare
+%d files on the board	LocalSend		%d file in bacheca
+Security	LocalSend		Sicurezza
+Clear board	LocalSend		Svuota bacheca
+Link active on port %d. Open in browser:	LocalSend		Link attivo su porta %d. Apri nel browser:
+Cannot create TLS certificate.	LocalSend		Impossibile creare il certificato TLS.
+Open in editor	LocalSend		Apri nell'editor
+Type the message to send:	LocalSend		Scrivi il messaggio da inviare:
+Accept	LocalSend		Accetta
+Browse…	LocalSend		Sfoglia…
+Send failed	LocalSend		Invio fallito
+Board is empty	LocalSend		Bacheca vuota
+Settings…	LocalSend		Impostazioni…
+Open	LocalSend		Apri
+From: 	LocalSend		Da: 
+Ready to receive	LocalSend		Pronto a ricevere
+No favorites online right now.	LocalSend		Nessun preferito online in questo momento.
+Devices on network	LocalSend		Dispositivi in rete
+Cannot open port (already in use?)	LocalSend		Impossibile aprire la porta (occupata?)
+Network	LocalSend		Rete
+File received	LocalSend		File ricevuto
+Port:	LocalSend		Porta:
+From the circle	LocalSend		Dalla cerchia
+Desktop replicant (drag to your desktop):	LocalSend		Replicant desktop (trascina sul desktop):
+History	LocalSend		Cronologia
+Add to Deskbar	LocalSend		Aggiungi al Deskbar
+Incoming transfer	LocalSend		Trasferimento in arrivo
+Quick save (accept all)	LocalSend		Salvataggio rapido (accetta tutto)
+Enable HTTPS	LocalSend		Abilita HTTPS
+Save	LocalSend		Salva
+Add files…	LocalSend		Aggiungi file…
+Board	LocalSend		Bacheca
+Refresh	LocalSend		Aggiorna
+OK	LocalSend		OK
+Send file…	LocalSend		Invia file…
+Auto-accept from favorites	LocalSend		Accetta automaticamente dai preferiti
+Auto-download from favorites' boards	LocalSend		Scarica automaticamente dalla bacheca dei preferiti
+Board visible to favorites only	LocalSend		Bacheca visibile solo ai preferiti
+Remove from board	LocalSend		Rimuovi dalla bacheca
+Send to circle…	LocalSend		Invia alla cerchia…
+Sent to %d devices	LocalSend		Inviato a %d dispositivi
+Download and open	LocalSend		Scarica e apri
+Select a device from the list.	LocalSend		Seleziona un dispositivo dalla lista.
+Share via link…	LocalSend		Condividi via link…
+ files sent successfully	LocalSend		 file inviati con successo

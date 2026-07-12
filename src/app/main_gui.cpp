@@ -59,7 +59,6 @@
 #include <qrencode.h>
 
 #include "app/DeskbarItem.h"
-#include "app/Locale.h"
 #include "replicant/DesktopReplicant.h"
 #include "net/MulticastAnnouncer.h"
 #include "net/TlsContext.h"
@@ -70,6 +69,12 @@
 #include "protocol/Models.h"
 #include "client/FileSource.h"
 #include "client/UploadSession.h"
+
+// Contesto del Locale Kit: raggruppa le stringhe di questo file nel catalogo.
+// Deve precedere il primo B_TRANSLATE. La lingua segue le preferenze di
+// sistema (Preferenze > Locale); niente selettore in-app.
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "LocalSend"
 #include "server/FileSink.h"
 #include "server/ReceiveSession.h"
 
@@ -164,7 +169,6 @@ struct AppSettings {
 	std::string pin;
 	bool quickSave = false;
 	bool https = true;
-	std::string language;
 	// True quando l'utente ha installato il replicant nella Deskbar.
 	// Persistito perche' la Deskbar non sempre rigenera lo shelf al boot:
 	// se il flag e' true e il replicant manca all'avvio dell'app, lo
@@ -183,30 +187,11 @@ struct AppSettings {
 	// di un estraneo riceve 403. Default off = comportamento storico.
 	bool boardFavoritesOnly = false;
 
-	void DetectSystemLanguage()
-	{
-		if (!language.empty())
-			return; // gia' impostata dall'utente
-		BMessage preferred;
-		if (BLocaleRoster::Default()->GetPreferredLanguages(&preferred)
-				== B_OK) {
-			const char* lang = nullptr;
-			if (preferred.FindString("language", &lang) == B_OK && lang)
-				language = std::string(lang, 2); // primi 2 char
-		}
-		if (language.empty())
-			language = "en"; // fallback
-	}
-
 	void Load(const std::string& path)
 	{
-		bool hasLang = false;
 		FILE* f = fopen(path.c_str(), "r");
-		if (!f) {
-			DetectSystemLanguage();
-			SetLanguageFromName(language.c_str());
+		if (!f)
 			return;
-		}
 		char line[512];
 		while (fgets(line, sizeof(line), f)) {
 			std::string l(line);
@@ -231,15 +216,10 @@ struct AppSettings {
 				autoDownloadBoard = (val == "1");
 			else if (key == "boardFavoritesOnly")
 				boardFavoritesOnly = (val == "1");
-			else if (key == "language") {
-				language = val;
-				hasLang = true;
-			}
+			// "language": chiave storica ignorata (ora la lingua segue
+			// le preferenze di sistema tramite il Locale Kit).
 		}
 		fclose(f);
-		if (!hasLang)
-			DetectSystemLanguage();
-		SetLanguageFromName(language.c_str());
 	}
 
 	void Save(const std::string& path) const
@@ -258,7 +238,6 @@ struct AppSettings {
 			autoAcceptFavorites ? 1 : 0);
 		fprintf(f, "autoDownloadBoard=%d\n", autoDownloadBoard ? 1 : 0);
 		fprintf(f, "boardFavoritesOnly=%d\n", boardFavoritesOnly ? 1 : 0);
-		fprintf(f, "language=%s\n", language.c_str());
 		fclose(f);
 	}
 };
@@ -791,13 +770,13 @@ class TextInputWindow : public BWindow {
 public:
 	TextInputWindow(BWindow* target)
 		:
-		BWindow(BRect(150, 150, 530, 350), Tr(S_SEND_TEXT),
+		BWindow(BRect(150, 150, 530, 350), B_TRANSLATE("Send text…"),
 			B_TITLED_WINDOW,
 			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
 				| B_CLOSE_ON_ESCAPE),
 		fTarget(target)
 	{
-		BStringView* label = new BStringView("hint", Tr(S_TEXT_HINT));
+		BStringView* label = new BStringView("hint", B_TRANSLATE("Type the message to send:"));
 
 		fTextView = new BTextView("text");
 		fTextView->SetStylable(false);
@@ -806,9 +785,9 @@ public:
 		BScrollView* scroll = new BScrollView("tscroll", fTextView,
 			0, false, true, B_FANCY_BORDER);
 
-		BButton* sendBtn = new BButton(Tr(S_SEND_FILE),
+		BButton* sendBtn = new BButton(B_TRANSLATE("Send file…"),
 			new BMessage(kMsgTextReady));
-		BButton* cancelBtn = new BButton(Tr(S_CANCEL),
+		BButton* cancelBtn = new BButton(B_TRANSLATE("Cancel"),
 			new BMessage(B_QUIT_REQUESTED));
 
 		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
@@ -1030,9 +1009,9 @@ public:
 		urlView->SetStylable(false);
 		urlView->SetExplicitMinSize(BSize(B_SIZE_UNSET, 24));
 
-		BButton* stopBtn = new BButton(Tr(S_SHARE_LINK_STOP),
+		BButton* stopBtn = new BButton(B_TRANSLATE("Stop sharing"),
 			new BMessage(kMsgStop));
-		BButton* closeBtn = new BButton(Tr(S_OK),
+		BButton* closeBtn = new BButton(B_TRANSLATE("OK"),
 			new BMessage(B_QUIT_REQUESTED));
 		closeBtn->MakeDefault(true);
 
@@ -1100,13 +1079,13 @@ public:
 		BScrollView* scroll = new BScrollView("tscroll", view,
 			0, false, true, B_NO_BORDER);
 
-		BButton* saveBtn = new BButton(Tr(S_SAVE_TO_FILE),
+		BButton* saveBtn = new BButton(B_TRANSLATE("Save to file"),
 			new BMessage(kMsgTxRxSave));
-		BButton* openBtn = new BButton(Tr(S_OPEN_IN_EDITOR),
+		BButton* openBtn = new BButton(B_TRANSLATE("Open in editor"),
 			new BMessage(kMsgTxRxOpen));
-		BButton* copyBtn = new BButton(Tr(S_COPY),
+		BButton* copyBtn = new BButton(B_TRANSLATE("Copy"),
 			new BMessage(kMsgTxRxCopy));
-		BButton* closeBtn = new BButton(Tr(S_OK),
+		BButton* closeBtn = new BButton(B_TRANSLATE("OK"),
 			new BMessage(B_QUIT_REQUESTED));
 		closeBtn->MakeDefault(true);
 
@@ -1232,7 +1211,7 @@ class HistoryWindow : public BWindow {
 public:
 	HistoryWindow(TransferHistory* history, BWindow* parent)
 		:
-		BWindow(BRect(120, 120, 530, 430), Tr(S_HISTORY),
+		BWindow(BRect(120, 120, 530, 430), B_TRANSLATE("History"),
 			B_TITLED_WINDOW,
 			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
 				| B_CLOSE_ON_ESCAPE),
@@ -1242,7 +1221,7 @@ public:
 		BScrollView* scroll = new BScrollView("hscroll", fList,
 			0, false, true, B_NO_BORDER);
 
-		BButton* clearBtn = new BButton(Tr(S_CLEAR_HISTORY),
+		BButton* clearBtn = new BButton(B_TRANSLATE("Clear history"),
 			new BMessage(kMsgClearHistory));
 
 		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
@@ -1290,7 +1269,7 @@ class SettingsWindow : public BWindow {
 public:
 	SettingsWindow(AppSettings* settings, BWindow* target)
 		:
-		BWindow(BRect(150, 150, 560, 530), Tr(S_SETTINGS_TITLE),
+		BWindow(BRect(150, 150, 560, 530), B_TRANSLATE("Settings"),
 			B_TITLED_WINDOW,
 			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
 				| B_CLOSE_ON_ESCAPE),
@@ -1298,59 +1277,50 @@ public:
 		fTarget(target)
 	{
 		// Campi.
-		fAliasField = new BTextControl(Tr(S_DEVICE_NAME),
+		fAliasField = new BTextControl(B_TRANSLATE("Device name:"),
 			settings->alias.c_str(), NULL);
-		fDestDirField = new BTextControl(Tr(S_SAVE_FOLDER),
+		fDestDirField = new BTextControl(B_TRANSLATE("Save folder:"),
 			settings->destDir.c_str(), NULL);
-		BButton* browseBtn = new BButton(Tr(S_BROWSE),
+		BButton* browseBtn = new BButton(B_TRANSLATE("Browse…"),
 			new BMessage(kMsgBrowseDir));
 
 		BString portStr;
 		portStr << settings->port;
-		fPortField = new BTextControl(Tr(S_PORT), portStr.String(), NULL);
+		fPortField = new BTextControl(B_TRANSLATE("Port:"), portStr.String(), NULL);
 
-		fPinField = new BTextControl(Tr(S_PIN_LABEL),
+		fPinField = new BTextControl(B_TRANSLATE("PIN (empty = none):"),
 			settings->pin.c_str(), NULL);
-		fQuickSaveBox = new BCheckBox(Tr(S_QUICK_SAVE), NULL);
+		fQuickSaveBox = new BCheckBox(B_TRANSLATE("Quick save (accept all)"), NULL);
 		fQuickSaveBox->SetValue(settings->quickSave ? B_CONTROL_ON
 			: B_CONTROL_OFF);
-		fAutoAcceptFavBox = new BCheckBox(Tr(S_AUTO_ACCEPT_FAVORITES),
+		fAutoAcceptFavBox = new BCheckBox(B_TRANSLATE("Auto-accept from favorites"),
 			NULL);
 		fAutoAcceptFavBox->SetValue(settings->autoAcceptFavorites
 			? B_CONTROL_ON : B_CONTROL_OFF);
-		fAutoDownloadBoardBox = new BCheckBox(Tr(S_AUTO_DOWNLOAD_BOARD),
+		fAutoDownloadBoardBox = new BCheckBox(B_TRANSLATE("Auto-download from favorites' boards"),
 			NULL);
 		fAutoDownloadBoardBox->SetValue(settings->autoDownloadBoard
 			? B_CONTROL_ON : B_CONTROL_OFF);
-		fBoardFavsOnlyBox = new BCheckBox(Tr(S_BOARD_FAVS_ONLY), NULL);
+		fBoardFavsOnlyBox = new BCheckBox(B_TRANSLATE("Board visible to favorites only"), NULL);
 		fBoardFavsOnlyBox->SetValue(settings->boardFavoritesOnly
 			? B_CONTROL_ON : B_CONTROL_OFF);
-		fHttpsBox = new BCheckBox(Tr(S_ENABLE_HTTPS), NULL);
+		fHttpsBox = new BCheckBox(B_TRANSLATE("Enable HTTPS"), NULL);
 		fHttpsBox->SetValue(B_CONTROL_ON);
 		fHttpsBox->SetEnabled(false);
 
-		// Lingua.
-		fLangMenu = new BPopUpMenu("lang");
-		for (int i = 0; i < kLangCount; i++) {
-			BMenuItem* item = new BMenuItem(
-				LanguageName((Language)i), NULL);
-			if (strcmp(LanguageCode((Language)i),
-					settings->language.c_str()) == 0)
-				item->SetMarked(true);
-			fLangMenu->AddItem(item);
-		}
-		fLangField = new BMenuField(Tr(S_LANGUAGE), fLangMenu);
+		// La lingua segue le preferenze di sistema (Locale Kit): nessun
+		// selettore qui. Per cambiarla: Preferenze > Locale.
 
 		// Pulsanti.
-		BButton* saveBtn = new BButton(Tr(S_SAVE),
+		BButton* saveBtn = new BButton(B_TRANSLATE("Save"),
 			new BMessage(kMsgSettingsSave));
-		BButton* cancelBtn = new BButton(Tr(S_CANCEL),
+		BButton* cancelBtn = new BButton(B_TRANSLATE("Cancel"),
 			new BMessage(B_QUIT_REQUESTED));
 
 		// Toggle Deskbar: etichetta scelta in base allo stato corrente.
 		fDeskbarBtn = new BButton("deskbar",
 			IsDeskbarItemInstalled()
-				? Tr(S_REMOVE_FROM_DESKBAR) : Tr(S_ADD_TO_DESKBAR),
+				? B_TRANSLATE("Remove from Deskbar") : B_TRANSLATE("Add to Deskbar"),
 			new BMessage(kMsgToggleDeskbar));
 
 		// Intestazioni sezione (grassetto).
@@ -1363,26 +1333,25 @@ public:
 		// Layout senza BBox (piu' stabile).
 		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
 			.SetInsets(B_USE_WINDOW_INSETS)
-			.Add(MakeLabel(Tr(S_GENERAL)))
+			.Add(MakeLabel(B_TRANSLATE("General")))
 			.Add(fAliasField)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(fDestDirField, 1.0)
 				.Add(browseBtn, 0.0)
 			.End()
-			.Add(fLangField)
 			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(Tr(S_NETWORK)))
+			.Add(MakeLabel(B_TRANSLATE("Network")))
 			.Add(fPortField)
 			.Add(fHttpsBox)
 			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(Tr(S_SECURITY)))
+			.Add(MakeLabel(B_TRANSLATE("Security")))
 			.Add(fPinField)
 			.Add(fQuickSaveBox)
 			.Add(fAutoAcceptFavBox)
 			.Add(fAutoDownloadBoardBox)
 			.Add(fBoardFavsOnlyBox)
 			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(Tr(S_INTEGRATION)))
+			.Add(MakeLabel(B_TRANSLATE("Integration")))
 			.AddGroup(B_HORIZONTAL)
 				.Add(fDeskbarBtn)
 				.AddGlue()
@@ -1391,7 +1360,7 @@ public:
 			// maniglia BDragger. L'utente la trascina sul desktop (serve
 			// "Show replicants" attivo nella Deskbar).
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-				.Add(new BStringView("", Tr(S_DESKTOP_REPLICANT)))
+				.Add(new BStringView("", B_TRANSLATE("Desktop replicant (drag to your desktop):")))
 				.Add(NewLocalSendDropView(48))
 				.AddGlue()
 			.End()
@@ -1431,8 +1400,8 @@ public:
 				}
 				bool installed = IsDeskbarItemInstalled();
 				fDeskbarBtn->SetLabel(installed
-					? Tr(S_REMOVE_FROM_DESKBAR)
-					: Tr(S_ADD_TO_DESKBAR));
+					? B_TRANSLATE("Remove from Deskbar")
+					: B_TRANSLATE("Add to Deskbar"));
 				// Persisti subito la scelta: la Deskbar non garantisce
 				// la rigenerazione del replicant al boot, quindi al
 				// prossimo avvio dell'app lo re-installeremo da soli
@@ -1458,7 +1427,7 @@ public:
 						"Operazione Deskbar fallita: %s (%ld)",
 						strerror(err), (long)err);
 					BAlert* a = new BAlert("LocalSend", buf,
-						Tr(S_OK), NULL, NULL,
+						B_TRANSLATE("OK"), NULL, NULL,
 						B_WIDTH_AS_USUAL, B_WARNING_ALERT);
 					a->Go();
 				}
@@ -1492,32 +1461,11 @@ public:
 					= (fAutoDownloadBoardBox->Value() == B_CONTROL_ON);
 				fSettings->boardFavoritesOnly
 					= (fBoardFavsOnlyBox->Value() == B_CONTROL_ON);
-				// Lingua.
-				bool langChanged = false;
-				BMenuItem* marked = fLangMenu->FindMarked();
-				if (marked) {
-					int idx = fLangMenu->IndexOf(marked);
-					if (idx >= 0 && idx < kLangCount) {
-						const char* code = LanguageCode((Language)idx);
-						if (fSettings->language != code) {
-							fSettings->language = code;
-							SetLanguage((Language)idx);
-							langChanged = true;
-						}
-					}
-				}
 				fSettings->Save(kSettingsFile);
 
 				// Notifica la finestra principale.
 				fTarget->PostMessage(new BMessage(kMsgSettingsSave));
 
-				if (langChanged) {
-					BAlert* alert = new BAlert("LocalSend",
-						Tr(S_LANG_RESTART),
-						Tr(S_OK), NULL, NULL,
-						B_WIDTH_AS_USUAL, B_INFO_ALERT);
-					alert->Go();
-				}
 				PostMessage(B_QUIT_REQUESTED);
 				break;
 			}
@@ -1540,8 +1488,6 @@ private:
 	BCheckBox* fAutoDownloadBoardBox;
 	BCheckBox* fBoardFavsOnlyBox;
 	BCheckBox* fHttpsBox;
-	BPopUpMenu* fLangMenu;
-	BMenuField* fLangField;
 	BFilePanel* fDirPanel;
 	BButton* fDeskbarBtn;
 };
@@ -1777,9 +1723,9 @@ public:
 				BPopUpMenu* menu = new BPopUpMenu("board-ctx",
 					false, false);
 				menu->SetAsyncAutoDestruct(true);
-				menu->AddItem(new BMenuItem(Tr(S_OPEN),
+				menu->AddItem(new BMenuItem(B_TRANSLATE("Open"),
 					new BMessage(kMsgBoardOpenLocal)));
-				menu->AddItem(new BMenuItem(Tr(S_REMOVE_FROM_BOARD),
+				menu->AddItem(new BMenuItem(B_TRANSLATE("Remove from board"),
 					new BMessage(kMsgBoardRemove)));
 				menu->SetTargetForItems(BMessenger(Window()));
 				menu->Go(ConvertToScreen(where), true, true, true);
@@ -1867,9 +1813,9 @@ public:
 				BPopUpMenu* menu = new BPopUpMenu("board-ctx",
 					false, false);
 				menu->SetAsyncAutoDestruct(true);
-				menu->AddItem(new BMenuItem(Tr(S_DOWNLOAD),
+				menu->AddItem(new BMenuItem(B_TRANSLATE("Download"),
 					new BMessage(kMsgBoardDownload)));
-				menu->AddItem(new BMenuItem(Tr(S_DOWNLOAD_AND_OPEN),
+				menu->AddItem(new BMenuItem(B_TRANSLATE("Download and open"),
 					new BMessage(kMsgBoardDownloadOpen)));
 				menu->SetTargetForItems(BMessenger(Window()));
 				menu->Go(ConvertToScreen(where), true, true, true);
@@ -1892,7 +1838,7 @@ class BoardWindow : public BWindow {
 public:
 	BoardWindow(BMessenger target)
 		:
-		BWindow(BRect(160, 160, 600, 600), Tr(S_BOARD), B_TITLED_WINDOW,
+		BWindow(BRect(160, 160, 600, 600), B_TRANSLATE("Board"), B_TITLED_WINDOW,
 			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
 				| B_CLOSE_ON_ESCAPE),
 		fTarget(target)
@@ -1916,16 +1862,16 @@ public:
 		BScrollView* remScroll = new BScrollView("remscroll", fRemoteList,
 			0, false, true, B_FANCY_BORDER);
 
-		BButton* addBtn = new BButton(Tr(S_ADD_FILES),
+		BButton* addBtn = new BButton(B_TRANSLATE("Add files…"),
 			new BMessage(kMsgBoardPickFiles));
-		BButton* clearBtn = new BButton(Tr(S_CLEAR_BOARD),
+		BButton* clearBtn = new BButton(B_TRANSLATE("Clear board"),
 			new BMessage(kMsgStopShare));
-		BButton* dlAllBtn = new BButton(Tr(S_DOWNLOAD_ALL),
+		BButton* dlAllBtn = new BButton(B_TRANSLATE("Download all"),
 			new BMessage(kMsgBoardDownloadAll));
 
 		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
 			.SetInsets(B_USE_WINDOW_INSETS)
-			.Add(MakeLabel(Tr(S_MY_BOARD)))
+			.Add(MakeLabel(B_TRANSLATE("My board")))
 			.Add(myScroll, 1.0)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(addBtn)
@@ -1933,7 +1879,7 @@ public:
 				.AddGlue()
 			.End()
 			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(Tr(S_FROM_CIRCLE)))
+			.Add(MakeLabel(B_TRANSLATE("From the circle")))
 			.Add(remScroll, 1.0)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(dlAllBtn)
@@ -2059,7 +2005,7 @@ private:
 				name ? name : "?"));
 		}
 		if (fMyList->CountItems() == 0)
-			fMyList->AddItem(new BStringItem(Tr(S_BOARD_EMPTY)));
+			fMyList->AddItem(new BStringItem(B_TRANSLATE("Board is empty")));
 
 		for (int32 i = 0; ; i++) {
 			const char* fname = nullptr;
@@ -2084,7 +2030,7 @@ private:
 				fname ? fname : "?", type ? type : "", sz));
 		}
 		if (fRemoteList->CountItems() == 0)
-			fRemoteList->AddItem(new BStringItem(Tr(S_BOARD_EMPTY)));
+			fRemoteList->AddItem(new BStringItem(B_TRANSLATE("Board is empty")));
 	}
 
 	BMessenger fTarget;
@@ -2225,7 +2171,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fHeader = new HeaderView();
 	fHeader->SetDeviceName(info->alias.c_str());
 	fHeader->SetFingerprint(info->fingerprint.c_str());
-	fHeader->SetStatus(Tr(S_READY), true, false);
+	fHeader->SetStatus(B_TRANSLATE("Ready to receive"), true, false);
 
 	// Lista dispositivi con scroll.
 	fDeviceList = new BListView("devices");
@@ -2235,11 +2181,11 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 
 	// Etichetta sezione dispositivi + pulsante Refresh.
 	BStringView* devLabel = new BStringView("devlabel",
-		Tr(S_DEVICES_IN_NETWORK));
+		B_TRANSLATE("Devices on network"));
 	BFont labelFont(be_bold_font);
 	labelFont.SetSize(be_plain_font->Size());
 	devLabel->SetFont(&labelFont);
-	BButton* refreshBtn = new BButton("refresh", Tr(S_REFRESH),
+	BButton* refreshBtn = new BButton("refresh", B_TRANSLATE("Refresh"),
 		new BMessage(kMsgRefreshDevices));
 	refreshBtn->SetExplicitMinSize(BSize(B_SIZE_UNSET, B_SIZE_UNSET));
 
@@ -2250,17 +2196,17 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fProgressBar->Hide();
 
 	// Pulsanti.
-	BButton* sendBtn = new BButton(Tr(S_SEND_FILE),
+	BButton* sendBtn = new BButton(B_TRANSLATE("Send file…"),
 		new BMessage(kMsgSendFile));
-	BButton* textBtn = new BButton(Tr(S_SEND_TEXT),
+	BButton* textBtn = new BButton(B_TRANSLATE("Send text…"),
 		new BMessage(kMsgSendText));
-	BButton* circleBtn = new BButton(Tr(S_SEND_TO_CIRCLE),
+	BButton* circleBtn = new BButton(B_TRANSLATE("Send to circle…"),
 		new BMessage(kMsgSendToCircle));
 	BButton* favBtn = new BButton("\xe2\x98\x85",
 		new BMessage(kMsgToggleFavorite));
-	BButton* settingsBtn = new BButton(Tr(S_SETTINGS),
+	BButton* settingsBtn = new BButton(B_TRANSLATE("Settings…"),
 		new BMessage(kMsgShowSettings));
-	BButton* historyBtn = new BButton(Tr(S_HISTORY),
+	BButton* historyBtn = new BButton(B_TRANSLATE("History"),
 		new BMessage(kMsgShowHistory));
 
 	// Layout.
@@ -2284,9 +2230,9 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.End()
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(historyBtn, 1.0)
-				.Add(new BButton(Tr(S_SHARE_LINK),
+				.Add(new BButton(B_TRANSLATE("Share via link…"),
 					new BMessage(kMsgShareLink)), 1.0)
-				.Add(new BButton(Tr(S_BOARD),
+				.Add(new BButton(B_TRANSLATE("Board"),
 					new BMessage(kMsgShowBoard)), 1.0)
 				.Add(settingsBtn, 1.0)
 				.Add(new BButton("?",
@@ -2524,7 +2470,7 @@ MainWindow::StartServer(void* sslCtx)
 
 	if (!fServer.Start(fInfo->port)) {
 		BAlert* alert = new BAlert("Errore",
-			Tr(S_PORT_BUSY),
+			B_TRANSLATE("Cannot open port (already in use?)"),
 			"OK", NULL, NULL, B_WIDTH_AS_USUAL, B_STOP_ALERT);
 		alert->Go();
 		return;
@@ -2657,7 +2603,7 @@ MainWindow::PruneStaleDevices()
 void
 MainWindow::HandleIncoming(IncomingRequest* req)
 {
-	BString text(Tr(S_FROM));
+	BString text(B_TRANSLATE("From: "));
 	text << req->data.sender.alias.c_str() << "\n\n";
 
 	long long totalSize = 0;
@@ -2679,8 +2625,8 @@ MainWindow::HandleIncoming(IncomingRequest* req)
 			text << (int)(totalSize / 1024) << " KB";
 	}
 
-	BAlert* alert = new BAlert(Tr(S_INCOMING_TRANSFER),
-		text.String(), Tr(S_ACCEPT), Tr(S_REJECT), NULL,
+	BAlert* alert = new BAlert(B_TRANSLATE("Incoming transfer"),
+		text.String(), B_TRANSLATE("Accept"), B_TRANSLATE("Reject"), NULL,
 		B_WIDTH_AS_USUAL, B_INFO_ALERT);
 	alert->SetShortcut(1, B_ESCAPE);
 	int32 result = alert->Go();
@@ -2710,7 +2656,7 @@ MainWindow::MessageReceived(BMessage* msg)
 				int32 sel = fDeviceList->CurrentSelection();
 				if (sel < 0 || sel >= (int32)fDevices.size()) {
 					BAlert* alert = new BAlert("LocalSend",
-						Tr(S_SELECT_DEVICE), Tr(S_OK),
+						B_TRANSLATE("Select a device from the list."), B_TRANSLATE("OK"),
 						NULL, NULL, B_WIDTH_AS_USUAL,
 						B_INFO_ALERT);
 					alert->Go();
@@ -2772,13 +2718,13 @@ MainWindow::MessageReceived(BMessage* msg)
 			const char* name = nullptr;
 			msg->FindString("name", &name);
 			if (name) {
-				BString status(Tr(S_RECEIVED_COLON));
+				BString status(B_TRANSLATE("Received: "));
 				status << name;
 				fHeader->SetStatus(status.String(), true, false);
 
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
-				notif.SetTitle(Tr(S_FILE_RECEIVED));
+				notif.SetTitle(B_TRANSLATE("File received"));
 				notif.SetContent(name);
 				notif.Send();
 
@@ -2814,7 +2760,7 @@ MainWindow::MessageReceived(BMessage* msg)
 		{
 			if (fDownloadActive) {
 				StopDownloadServer();
-				fHeader->SetStatus(Tr(S_READY), true, false);
+				fHeader->SetStatus(B_TRANSLATE("Ready to receive"), true, false);
 			} else {
 				// Apri il file picker per scegliere i file da condividere.
 				if (!fFilePanel) {
@@ -2822,9 +2768,9 @@ MainWindow::MessageReceived(BMessage* msg)
 						new BMessenger(this), NULL, B_FILE_NODE,
 						true, new BMessage(kMsgShareLink));
 					fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON,
-						Tr(S_SHARE_LINK));
+						B_TRANSLATE("Share via link…"));
 					fFilePanel->Window()->SetTitle(
-						Tr(S_CHOOSE_FILES));
+						B_TRANSLATE("Choose files to send"));
 				} else {
 					fFilePanel->SetMessage(
 						new BMessage(kMsgShareLink));
@@ -2851,7 +2797,7 @@ MainWindow::MessageReceived(BMessage* msg)
 
 		case kMsgStopShare:
 			StopDownloadServer();
-			fHeader->SetStatus(Tr(S_READY), true, false);
+			fHeader->SetStatus(B_TRANSLATE("Ready to receive"), true, false);
 			break;
 
 		case kMsgAbout:
@@ -2865,7 +2811,7 @@ MainWindow::MessageReceived(BMessage* msg)
 				"This software may contain\n"
 				"traces of peanuts and LLM.\n\n"
 				"MIT License",
-				Tr(S_OK), NULL, NULL,
+				B_TRANSLATE("OK"), NULL, NULL,
 				B_WIDTH_AS_USUAL, B_INFO_ALERT);
 			alert->Go();
 			break;
@@ -2977,13 +2923,13 @@ MainWindow::MessageReceived(BMessage* msg)
 				fFilePanel = new BFilePanel(B_OPEN_PANEL,
 					new BMessenger(this), NULL, B_FILE_NODE,
 					true, new BMessage(kMsgSendToCircle));
-				fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
+				fFilePanel->Window()->SetTitle(B_TRANSLATE("Choose files to send"));
 			} else {
 				fFilePanel->SetMessage(
 					new BMessage(kMsgSendToCircle));
 			}
 			fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON,
-				Tr(S_SEND_TO_CIRCLE));
+				B_TRANSLATE("Send to circle…"));
 			fFilePanel->Show();
 			break;
 		}
@@ -3049,11 +2995,11 @@ MainWindow::MessageReceived(BMessage* msg)
 				fFilePanel = new BFilePanel(B_OPEN_PANEL,
 					new BMessenger(this), NULL, B_FILE_NODE,
 					true, new BMessage(kMsgAddToBoard));
-				fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
+				fFilePanel->Window()->SetTitle(B_TRANSLATE("Choose files to send"));
 			} else {
 				fFilePanel->SetMessage(new BMessage(kMsgAddToBoard));
 			}
-			fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_ADD_FILES));
+			fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, B_TRANSLATE("Add files…"));
 			fFilePanel->Show();
 			break;
 		}
@@ -3182,7 +3128,7 @@ MainWindow::MessageReceived(BMessage* msg)
 
 			if (!rb.files.empty()) {
 				char buf[128];
-				snprintf(buf, sizeof(buf), Tr(S_N_FILES_IN_BOARD),
+				snprintf(buf, sizeof(buf), B_TRANSLATE("%d files on the board"),
 					(int)rb.files.size());
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
@@ -3316,13 +3262,13 @@ MainWindow::MessageReceived(BMessage* msg)
 					fBoardSeen.Add(seenKey);
 				fHistory.Add(false, name, alias ? alias : "?", size);
 
-				BString status(Tr(S_RECEIVED_COLON));
+				BString status(B_TRANSLATE("Received: "));
 				status << name;
 				fHeader->SetStatus(status.String(), true, false);
 
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
-				notif.SetTitle(Tr(S_FILE_RECEIVED));
+				notif.SetTitle(B_TRANSLATE("File received"));
 				notif.SetContent(name);
 				notif.Send();
 
@@ -3341,7 +3287,7 @@ MainWindow::MessageReceived(BMessage* msg)
 				BNotification notif(B_ERROR_NOTIFICATION);
 				notif.SetGroup("LocalSend");
 				notif.SetTitle(name);
-				notif.SetContent(Tr(S_SEND_FAILED));
+				notif.SetContent(B_TRANSLATE("Send failed"));
 				notif.Send();
 			}
 			break;
@@ -3356,9 +3302,9 @@ MainWindow::MessageReceived(BMessage* msg)
 
 			char buf[160];
 			if (ok == total)
-				snprintf(buf, sizeof(buf), Tr(S_CIRCLE_SENT_OK), (int)ok);
+				snprintf(buf, sizeof(buf), B_TRANSLATE("Sent to %d devices"), (int)ok);
 			else
-				snprintf(buf, sizeof(buf), Tr(S_CIRCLE_SENT_PARTIAL),
+				snprintf(buf, sizeof(buf), B_TRANSLATE("Sent to %d of %d devices"),
 					(int)ok, (int)total);
 			fHeader->SetStatus(buf, ok > 0, ok == 0);
 			if (!fProgressBar->IsHidden())
@@ -3378,7 +3324,7 @@ MainWindow::MessageReceived(BMessage* msg)
 			int32 sel = fDeviceList->CurrentSelection();
 			if (sel < 0) {
 				BAlert* alert = new BAlert("LocalSend",
-					Tr(S_SELECT_DEVICE), Tr(S_OK),
+					B_TRANSLATE("Select a device from the list."), B_TRANSLATE("OK"),
 					NULL, NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
 				alert->Go();
 			} else {
@@ -3410,7 +3356,7 @@ MainWindow::MessageReceived(BMessage* msg)
 			msg->FindString("text", &text);
 			msg->FindString("sender", &sender);
 			if (text) {
-				BString title(Tr(S_TEXT_RECEIVED));
+				BString title(B_TRANSLATE("Message received"));
 				if (sender)
 					title << " - " << sender;
 
@@ -3423,7 +3369,7 @@ MainWindow::MessageReceived(BMessage* msg)
 
 				BNotification notif(B_INFORMATION_NOTIFICATION);
 				notif.SetGroup("LocalSend");
-				notif.SetTitle(Tr(S_TEXT_RECEIVED));
+				notif.SetTitle(B_TRANSLATE("Message received"));
 				notif.SetContent(text);
 				notif.Send();
 
@@ -3465,8 +3411,8 @@ MainWindow::MessageReceived(BMessage* msg)
 			if (fSettings->port != fInfo->port) {
 				fInfo->port = fSettings->port;
 				BAlert* alert = new BAlert("LocalSend",
-					Tr(S_PORT_RESTART),
-					Tr(S_OK), NULL, NULL,
+					B_TRANSLATE("Port change will take effect after restart."),
+					B_TRANSLATE("OK"), NULL, NULL,
 					B_WIDTH_AS_USUAL, B_INFO_ALERT);
 				alert->Go();
 			}
@@ -3510,7 +3456,7 @@ MainWindow::SendToSelected()
 	int32 sel = fDeviceList->CurrentSelection();
 	if (sel < 0) {
 		BAlert* alert = new BAlert("LocalSend",
-			Tr(S_SELECT_DEVICE),
+			B_TRANSLATE("Select a device from the list."),
 			"OK", NULL, NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
 		alert->Go();
 		return;
@@ -3537,13 +3483,13 @@ MainWindow::SendPendingOrBrowse()
 	if (!fFilePanel) {
 		fFilePanel = new BFilePanel(B_OPEN_PANEL, new BMessenger(this),
 			NULL, B_FILE_NODE, true, new BMessage(kMsgFileSelected));
-		fFilePanel->Window()->SetTitle(Tr(S_CHOOSE_FILES));
+		fFilePanel->Window()->SetTitle(B_TRANSLATE("Choose files to send"));
 	} else {
 		// Il panel e' condiviso con Share-link e cerchia: ripristina
 		// messaggio ed etichetta di questo flusso.
 		fFilePanel->SetMessage(new BMessage(kMsgFileSelected));
 	}
-	fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, Tr(S_SEND_FILE));
+	fFilePanel->SetButtonLabel(B_DEFAULT_BUTTON, B_TRANSLATE("Send file…"));
 	fFilePanel->Show();
 }
 
@@ -3569,7 +3515,7 @@ void
 MainWindow::SendText(const std::string& host, int port,
 	const std::string& text)
 {
-	fHeader->SetStatus(Tr(S_SENDING));
+	fHeader->SetStatus(B_TRANSLATE("Sending…"));
 
 	std::thread([this, host, port, text]() {
 		// Scrivi il testo in un file temporaneo.
@@ -3608,10 +3554,10 @@ MainWindow::SendText(const std::string& host, int port,
 
 		BMessage msg(kMsgSendDone);
 		if (report.AllSent()) {
-			msg.AddString("status", Tr(S_FILES_SENT));
+			msg.AddString("status", B_TRANSLATE(" files sent successfully"));
 			msg.AddString("sent_file", "message.txt");
 		} else {
-			msg.AddString("status", Tr(S_SEND_FAILED));
+			msg.AddString("status", B_TRANSLATE("Send failed"));
 		}
 		msg.AddInt64("total_size", (int64)text.size());
 		msg.AddString("peer", host.c_str());
@@ -3624,7 +3570,7 @@ void
 MainWindow::SendFiles(const std::string& host, int port,
 	const std::vector<std::string>& paths)
 {
-	fHeader->SetStatus(Tr(S_SENDING));
+	fHeader->SetStatus(B_TRANSLATE("Sending…"));
 
 	std::thread([this, host, port, paths]() {
 		std::vector<FileMetadata> files;
@@ -3664,10 +3610,10 @@ MainWindow::SendFiles(const std::string& host, int port,
 		BMessage msg(kMsgSendDone);
 		if (report.AllSent()) {
 			BString s;
-			s << files.size() << Tr(S_FILES_SENT);
+			s << files.size() << B_TRANSLATE(" files sent successfully");
 			msg.AddString("status", s.String());
 		} else {
-			msg.AddString("status", Tr(S_SEND_FAILED));
+			msg.AddString("status", B_TRANSLATE("Send failed"));
 		}
 		// Passa i file inviati per la cronologia.
 		for (const auto& fo : report.files) {
@@ -3711,13 +3657,13 @@ MainWindow::SendToCircle(const std::vector<std::string>& paths)
 
 	if (targets.empty()) {
 		BAlert* alert = new BAlert("LocalSend",
-			Tr(S_NO_FAVORITES_ONLINE), Tr(S_OK),
+			B_TRANSLATE("No favorites online right now."), B_TRANSLATE("OK"),
 			NULL, NULL, B_WIDTH_AS_USUAL, B_INFO_ALERT);
 		alert->Go();
 		return;
 	}
 
-	fHeader->SetStatus(Tr(S_SENDING));
+	fHeader->SetStatus(B_TRANSLATE("Sending…"));
 
 	// Un solo thread, invii sequenziali: una UploadSession per destinatario.
 	std::thread([this, targets, paths]() {
@@ -3908,7 +3854,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 
 	if (!fDownloadServer.Start(kDownloadPort)) {
 		BAlert* alert = new BAlert("LocalSend",
-			Tr(S_PORT_BUSY), Tr(S_OK), NULL, NULL,
+			B_TRANSLATE("Cannot open port (already in use?)"), B_TRANSLATE("OK"), NULL, NULL,
 			B_WIDTH_AS_USUAL, B_STOP_ALERT);
 		alert->Go();
 		return;
@@ -3927,7 +3873,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 			count = (int)fSharedFiles.size();
 		}
 		char buf[64];
-		snprintf(buf, sizeof(buf), Tr(S_N_FILES_IN_BOARD), count);
+		snprintf(buf, sizeof(buf), B_TRANSLATE("%d files on the board"), count);
 		fHeader->SetStatus(buf, true, false);
 		_BoardChanged();
 		return;
@@ -3974,7 +3920,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 
 	BString status;
 	char buf[256];
-	snprintf(buf, sizeof(buf), Tr(S_SHARE_LINK_ACTIVE), kDownloadPort);
+	snprintf(buf, sizeof(buf), B_TRANSLATE("Link active on port %d. Open in browser:"), kDownloadPort);
 	status << buf;
 	fHeader->SetStatus(status.String(), true, false);
 
@@ -4260,8 +4206,8 @@ LocalSendApp::ReadyToRun()
 {
 	if (!fTls.ctx) {
 		BAlert* alert = new BAlert("Errore",
-			Tr(S_TLS_ERROR),
-			Tr(S_EXIT), NULL, NULL, B_WIDTH_AS_USUAL, B_STOP_ALERT);
+			B_TRANSLATE("Cannot create TLS certificate."),
+			B_TRANSLATE("Quit"), NULL, NULL, B_WIDTH_AS_USUAL, B_STOP_ALERT);
 		alert->Go();
 		PostMessage(B_QUIT_REQUESTED);
 		return;

@@ -26,6 +26,10 @@ test-board-bin
 *.hpkg
 *.zip
 
+# Cataloghi compilati (artefatti: build da locales/*.catkeys con `make catalogs`)
+data/locale/catalogs/
+locales/_pre.cpp
+
 # Fingerprint generato a runtime
 localsend_fingerprint
 

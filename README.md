@@ -23,7 +23,8 @@ If LocalSend for Haiku saves you time, consider supporting development: [![Buy M
 * Favorites, transfer history, notifications, and PIN protection
 * BFS MIME type integration for received files
 * Parallel file uploads for improved performance
-* Localized in English, Italian, Japanese, Chinese, and Spanish
+* Localized via the Haiku Locale Kit (English, Italian, Japanese, Chinese,
+  Spanish) — the UI follows your system language automatically
 * No external dependencies beyond Haiku system libraries and OpenSSL
 
 ## Quick start
@@ -100,13 +101,32 @@ Requires Haiku with GCC, OpenSSL (`openssl_devel`), and standard system
 libraries (`libbe`, `libnetwork`, `libtracker`).
 
 ```
-make                 # builds everything: GUI, CLI tools, add-on, replicants
+make                 # builds everything: GUI, CLI tools, add-on, replicants, catalogs
 make install-addon   # installs Tracker context menu add-on
+make install-catalogs # installs locale catalogs for testing (non-packaged)
 make check           # runs all protocol-level unit tests
 make test-receive    # receive-side protocol tests only
 make test-board      # shared-board protocol tests only
 make clean           # removes all build artifacts
 ```
+
+### Translations
+
+The UI uses the Haiku Locale Kit and follows your system language
+(Preferences → Locale). Translatable strings are the `B_TRANSLATE(...)`
+calls in the source; translations live in `locales/<lang>.catkeys`.
+
+To add or update a language:
+
+```
+make catkeys              # regenerate locales/en.catkeys after string changes
+# copy en.catkeys to locales/<lang>.catkeys and fill in the translations
+make catalogs             # compile locales/*.catkeys into .catalog files
+make install-catalogs     # install them for local testing
+```
+
+Keep the fingerprint on the first line of each `.catkeys` identical to
+`en.catkeys` — it ties the translations to the exact set of source strings.
 
 Note: the `LocalSendDesktop` replicant binary is registered in the MIME
 database by `mimeset` during the build. If you move it, run

@@ -62,7 +62,7 @@ ADDON_BIN = Send_with_LocalSend
 REPLICANT_BIN = LocalSendDeskbar
 DESKTOP_BIN = LocalSendDesktop
 
-all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) addon $(REPLICANT_BIN) $(DESKTOP_BIN)
+all: $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) addon $(REPLICANT_BIN) $(DESKTOP_BIN) catalogs
 
 $(SEND_BIN): $(SEND_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEND_OBJ) $(LDLIBS) $(SSL_LIBS)
@@ -70,8 +70,10 @@ $(SEND_BIN): $(SEND_OBJ)
 $(RECV_BIN): $(RECV_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(RECV_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe
 
+# -llocalestub: fornisce BLocaleRoster::GetCatalog() per-immagine, usato dai
+# B_TRANSLATE (Locale Kit). Le traduzioni vivono in catalogs (target catalogs).
 $(GUI_BIN): $(GUI_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe -ltracker -lqrencode
+	$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJ) $(LDLIBS) $(SSL_LIBS) -lbe -ltracker -lqrencode -llocalestub
 	rc -o $(GUI_BIN).rsrc LocalSend.rdef
 	xres -o $(GUI_BIN) $(GUI_BIN).rsrc
 	mimeset -f $(GUI_BIN)
@@ -108,11 +110,43 @@ install-addon: addon
 	addattr -t "'VICN'" -f ApeCar.hvif BEOS:ICON \
 		"/boot/home/config/non-packaged/add-ons/Tracker/Send with LocalSend"
 
+# --- Localizzazione (Locale Kit) -------------------------------------------
+# La lingua segue le preferenze di sistema. Le stringhe traducibili sono i
+# B_TRANSLATE in src/app/main_gui.cpp; le traduzioni vivono in locales/*.catkeys
+# (editabili dai traduttori) e vengono compilate in .catalog installabili.
+CATALOG_SIG   = x-vnd.LocalSend
+CATALOG_LANGS = it ja zh es
+CATALOG_DIR   = data/locale/catalogs/$(CATALOG_SIG)
+
+# Rigenera SOLO il template inglese (locales/en.catkeys) dal sorgente: da
+# eseguire quando si aggiungono o cambiano stringhe B_TRANSLATE. I traduttori
+# allineano poi i locales/<lang>.catkeys (stesso fingerprint e stesse chiavi).
+catkeys:
+	$(CXX) $(CXXFLAGS) -DB_COLLECTING_CATKEYS -E -P src/app/main_gui.cpp \
+		-o locales/_pre.cpp
+	collectcatkeys -s $(CATALOG_SIG) -l en -o locales/en.catkeys locales/_pre.cpp
+	rm -f locales/_pre.cpp
+
+# Compila i .catalog dai .catkeys tradotti.
+catalogs:
+	mkdir -p $(CATALOG_DIR)
+	for lang in $(CATALOG_LANGS); do \
+		linkcatkeys -o $(CATALOG_DIR)/$$lang.catalog \
+			-s $(CATALOG_SIG) -l $$lang locales/$$lang.catkeys; \
+	done
+
+# Installa i cataloghi nella dir locale dell'utente (per test senza pacchetto).
+install-catalogs: catalogs
+	mkdir -p "/boot/home/config/non-packaged/data/locale/catalogs/$(CATALOG_SIG)"
+	cp $(CATALOG_DIR)/*.catalog \
+		"/boot/home/config/non-packaged/data/locale/catalogs/$(CATALOG_SIG)/"
+
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc $(REPLICANT_BIN) replicant.rsrc $(DESKTOP_BIN) desktop.rsrc test-receive-bin test-board-bin
+	rm -f $(CATALOG_DIR)/*.catalog
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
 # socket, compilabile e runnabile ovunque (non solo Haiku). Niente -lnetwork.
@@ -137,4 +171,4 @@ test-board:
 # Tutti i test host-side.
 check: test-receive test-board
 
-.PHONY: all clean test-receive test-board check addon install-addon
+.PHONY: all clean test-receive test-board check addon install-addon catkeys catalogs install-catalogs

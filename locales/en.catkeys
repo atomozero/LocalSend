@@ -1,0 +1,69 @@
+1	en	x-vnd.LocalSend	2709370803
+Received: 	LocalSend		Received: 
+Device name:	LocalSend		Device name:
+Send text…	LocalSend		Send text…
+PIN (empty = none):	LocalSend		PIN (empty = none):
+Stop sharing	LocalSend		Stop sharing
+Save to file	LocalSend		Save to file
+Cancel	LocalSend		Cancel
+My board	LocalSend		My board
+Download all	LocalSend		Download all
+Remove from Deskbar	LocalSend		Remove from Deskbar
+General	LocalSend		General
+Sent to %d of %d devices	LocalSend		Sent to %d of %d devices
+Message received	LocalSend		Message received
+Reject	LocalSend		Reject
+Integration	LocalSend		Integration
+Save folder:	LocalSend		Save folder:
+Settings	LocalSend		Settings
+Copy	LocalSend		Copy
+Download	LocalSend		Download
+Clear history	LocalSend		Clear history
+Port change will take effect after restart.	LocalSend		Port change will take effect after restart.
+Quit	LocalSend		Quit
+Sending…	LocalSend		Sending…
+Choose files to send	LocalSend		Choose files to send
+%d files on the board	LocalSend		%d files on the board
+Security	LocalSend		Security
+Clear board	LocalSend		Clear board
+Link active on port %d. Open in browser:	LocalSend		Link active on port %d. Open in browser:
+Cannot create TLS certificate.	LocalSend		Cannot create TLS certificate.
+Open in editor	LocalSend		Open in editor
+Type the message to send:	LocalSend		Type the message to send:
+Accept	LocalSend		Accept
+Browse…	LocalSend		Browse…
+Send failed	LocalSend		Send failed
+Board is empty	LocalSend		Board is empty
+Settings…	LocalSend		Settings…
+Open	LocalSend		Open
+From: 	LocalSend		From: 
+Ready to receive	LocalSend		Ready to receive
+No favorites online right now.	LocalSend		No favorites online right now.
+Devices on network	LocalSend		Devices on network
+Cannot open port (already in use?)	LocalSend		Cannot open port (already in use?)
+Network	LocalSend		Network
+File received	LocalSend		File received
+Port:	LocalSend		Port:
+From the circle	LocalSend		From the circle
+Desktop replicant (drag to your desktop):	LocalSend		Desktop replicant (drag to your desktop):
+History	LocalSend		History
+Add to Deskbar	LocalSend		Add to Deskbar
+Incoming transfer	LocalSend		Incoming transfer
+Quick save (accept all)	LocalSend		Quick save (accept all)
+Enable HTTPS	LocalSend		Enable HTTPS
+Save	LocalSend		Save
+Add files…	LocalSend		Add files…
+Board	LocalSend		Board
+Refresh	LocalSend		Refresh
+OK	LocalSend		OK
+Send file…	LocalSend		Send file…
+Auto-accept from favorites	LocalSend		Auto-accept from favorites
+Auto-download from favorites' boards	LocalSend		Auto-download from favorites' boards
+Board visible to favorites only	LocalSend		Board visible to favorites only
+Remove from board	LocalSend		Remove from board
+Send to circle…	LocalSend		Send to circle…
+Sent to %d devices	LocalSend		Sent to %d devices
+Download and open	LocalSend		Download and open
+Select a device from the list.	LocalSend		Select a device from the list.
+Share via link…	LocalSend		Share via link…
+ files sent successfully	LocalSend		 files sent successfully

@@ -68,6 +68,11 @@ INSTALL()
 	mkdir -p $addOnsDir/Tracker
 	cp "Send with LocalSend" "$addOnsDir/Tracker/Send with LocalSend"
 
+	# Locale Kit catalogs: the UI language follows the system preferences.
+	mkdir -p $dataDir/locale/catalogs/x-vnd.LocalSend
+	cp data/locale/catalogs/x-vnd.LocalSend/*.catalog \
+		$dataDir/locale/catalogs/x-vnd.LocalSend/
+
 	# Deskbar launcher link.
 	addAppDeskbarSymlink $appsDir/LocalSend
 }

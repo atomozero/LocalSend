@@ -1,0 +1,69 @@
+1	ja	x-vnd.LocalSend	2709370803
+Received: 	LocalSend		受信: 
+Device name:	LocalSend		デバイス名:
+Send text…	LocalSend		テキストを送信…
+PIN (empty = none):	LocalSend		PIN（空欄 = なし）:
+Stop sharing	LocalSend		共有を停止
+Save to file	LocalSend		ファイルに保存
+Cancel	LocalSend		キャンセル
+My board	LocalSend		自分の掲示板
+Download all	LocalSend		すべてダウンロード
+Remove from Deskbar	LocalSend		Deskbarから削除
+General	LocalSend		一般
+Sent to %d of %d devices	LocalSend		%d/%d台のデバイスに送信しました
+Message received	LocalSend		メッセージを受信
+Reject	LocalSend		拒否
+Integration	LocalSend		統合
+Save folder:	LocalSend		保存先:
+Settings	LocalSend		設定
+Copy	LocalSend		コピー
+Download	LocalSend		ダウンロード
+Clear history	LocalSend		履歴を消去
+Port change will take effect after restart.	LocalSend		ポートの変更は再起動後に有効になります。
+Quit	LocalSend		終了
+Sending…	LocalSend		送信中…
+Choose files to send	LocalSend		送信するファイルを選択
+%d files on the board	LocalSend		掲示板に%d件のファイル
+Security	LocalSend		セキュリティ
+Clear board	LocalSend		掲示板をクリア
+Link active on port %d. Open in browser:	LocalSend		ポート%dでリンク有効。ブラウザで開く:
+Cannot create TLS certificate.	LocalSend		TLS証明書を作成できません。
+Open in editor	LocalSend		エディターで開く
+Type the message to send:	LocalSend		送信するメッセージを入力:
+Accept	LocalSend		受け入れる
+Browse…	LocalSend		参照…
+Send failed	LocalSend		送信失敗
+Board is empty	LocalSend		掲示板は空です
+Settings…	LocalSend		設定…
+Open	LocalSend		開く
+From: 	LocalSend		送信元: 
+Ready to receive	LocalSend		受信準備完了
+No favorites online right now.	LocalSend		オンラインのお気に入りがありません。
+Devices on network	LocalSend		ネットワーク上のデバイス
+Cannot open port (already in use?)	LocalSend		ポートを開けません（使用中？）
+Network	LocalSend		ネットワーク
+File received	LocalSend		ファイルを受信しました
+Port:	LocalSend		ポート:
+From the circle	LocalSend		サークルから
+Desktop replicant (drag to your desktop):	LocalSend		デスクトップレプリカント（デスクトップへドラッグ）:
+History	LocalSend		履歴
+Add to Deskbar	LocalSend		Deskbarに追加
+Incoming transfer	LocalSend		受信ファイル
+Quick save (accept all)	LocalSend		クイック保存（すべて受信）
+Enable HTTPS	LocalSend		HTTPSを有効にする
+Save	LocalSend		保存
+Add files…	LocalSend		ファイルを追加…
+Board	LocalSend		掲示板
+Refresh	LocalSend		更新
+OK	LocalSend		OK
+Send file…	LocalSend		ファイルを送信…
+Auto-accept from favorites	LocalSend		お気に入りから自動受信
+Auto-download from favorites' boards	LocalSend		お気に入りの掲示板から自動ダウンロード
+Board visible to favorites only	LocalSend		掲示板をお気に入りのみに公開
+Remove from board	LocalSend		掲示板から削除
+Send to circle…	LocalSend		サークルに送信…
+Sent to %d devices	LocalSend		%d台のデバイスに送信しました
+Download and open	LocalSend		ダウンロードして開く
+Select a device from the list.	LocalSend		リストからデバイスを選択してください。
+Share via link…	LocalSend		リンクで共有…
+ files sent successfully	LocalSend		 件送信完了
