@@ -187,11 +187,13 @@ struct AppSettings {
 	// di un estraneo riceve 403. Default off = comportamento storico.
 	bool boardFavoritesOnly = false;
 
-	void Load(const std::string& path)
+	// Ritorna true se il file esisteva: il chiamante distingue il primo
+	// avvio (nessun settings) per generare un alias casuale una volta sola.
+	bool Load(const std::string& path)
 	{
 		FILE* f = fopen(path.c_str(), "r");
 		if (!f)
-			return;
+			return false;
 		char line[512];
 		while (fgets(line, sizeof(line), f)) {
 			std::string l(line);
@@ -220,6 +222,7 @@ struct AppSettings {
 			// le preferenze di sistema tramite il Locale Kit).
 		}
 		fclose(f);
+		return true;
 	}
 
 	void Save(const std::string& path) const
@@ -245,6 +248,36 @@ struct AppSettings {
 static const char* kSettingsFile = "./localsend_settings";
 static const char* kHistoryFile = "./localsend_history";
 static const int kMaxHistoryEntries = 30;
+
+
+// Nome del dispositivo generato al primo avvio: un aggettivo + un nome che
+// strizza l'occhio a Haiku/BeOS. E' l'alias che gli altri vedono in rete;
+// l'utente puo' sempre cambiarlo dalle Impostazioni.
+static std::string
+GenerateRandomAlias()
+{
+	static const char* kAdjectives[] = {
+		"Blue", "Yellow", "Swift", "Cosmic", "Retro", "Turbo", "Pixel",
+		"Amber", "Silent", "Vivid", "Nimble", "Electric", "Mellow",
+		"Snappy", "Groovy"
+	};
+	static const char* kNouns[] = {
+		"Haiku", "BeBox", "Deskbar", "Tracker", "Replicant", "Leaf",
+		"Pulse", "NetPositive", "Dano", "Zeta", "GeekPort", "BFS",
+		"WebPositive", "StyledEdit", "Gobe", "Bootman", "Sen", "Koan"
+	};
+	const int nAdj = sizeof(kAdjectives) / sizeof(kAdjectives[0]);
+	const int nNoun = sizeof(kNouns) / sizeof(kNouns[0]);
+
+	// Seed da system_time (microsecondi dall'avvio): niente rand() globale
+	// da riseminare, basta e avanza per la scelta di due indici.
+	bigtime_t t = system_time();
+	unsigned r = (unsigned)(t ^ (t >> 21) ^ (t << 7));
+	std::string alias = kAdjectives[r % nAdj];
+	alias += " ";
+	alias += kNouns[(r / nAdj) % nNoun];
+	return alias;
+}
 
 
 // --- Cronologia trasferimenti ----------------------------------------------
@@ -4184,7 +4217,12 @@ LocalSendApp::LocalSendApp()
 	fAnnouncer(nullptr),
 	fWindow(nullptr)
 {
-	fSettings.Load(kSettingsFile);
+	// Primo avvio (nessun file settings): assegna un nome a tema Haiku/BeOS
+	// e persistilo subito, cosi' resta stabile ai riavvii successivi.
+	if (!fSettings.Load(kSettingsFile)) {
+		fSettings.alias = GenerateRandomAlias();
+		fSettings.Save(kSettingsFile);
+	}
 	fTls = CreateSelfSignedTls("localsend");
 
 	fInfo.alias = fSettings.alias;
