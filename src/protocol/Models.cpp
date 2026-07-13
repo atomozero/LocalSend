@@ -14,6 +14,7 @@ DeviceInfo::ToJson() const
 	v["port"] = port;
 	v["protocol"] = protocol;
 	v["download"] = download;
+	v["app"] = app; // marcatore Haiku (kAppId), campo ignorato dagli altri
 	// Estensione Haiku (bacheca): solo se presente, per non toccare i
 	// payload standard quando la bacheca non e' mai stata usata.
 	if (boardRev > 0)
@@ -44,6 +45,9 @@ DeviceInfo::FromJson(const JsonValue& v)
 		d.download = v.At("download").AsBool(d.download);
 	if (v.Has("boardRev"))
 		d.boardRev = static_cast<int>(v.At("boardRev").AsInt(0));
+	// Vuoto se assente: il default kAppId vale solo per l'info in USCITA,
+	// non deve fingere che un peer qualsiasi sia la nostra app.
+	d.app = v.Has("app") ? v.At("app").AsString() : std::string();
 	return d;
 }
 

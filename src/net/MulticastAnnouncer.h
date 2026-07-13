@@ -27,6 +27,9 @@ public:
 		std::string deviceType;
 		// Estensione Haiku: revisione della bacheca del peer (0 = nessuna).
 		int boardRev = 0;
+		// True se il peer gira la nostra app Haiku (marcatore "app" o
+		// deviceModel "Haiku"): abilita badge e funzioni Haiku-to-Haiku.
+		bool isHaiku = false;
 	};
 	using PeerHeardCallback = std::function<void(const Peer&)>;
 

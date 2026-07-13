@@ -9,6 +9,11 @@ constexpr const char* kMulticastGroup	= "224.0.0.167";
 constexpr int		kDefaultPort		= 53317;
 constexpr const char* kProtocolVersion	= "2.1";
 
+// Marcatore (estensione Haiku) messo nel campo "app" dell'annuncio: permette
+// di riconoscere con certezza un peer che gira la nostra app. I client
+// ufficiali non lo inviano e ignorano il campo sconosciuto.
+constexpr const char* kAppId			= "localsend-haiku";
+
 constexpr const char* kApiPrepareUpload	= "/api/localsend/v2/prepare-upload";
 constexpr const char* kApiUpload		= "/api/localsend/v2/upload";
 constexpr const char* kApiCancel		= "/api/localsend/v2/cancel";

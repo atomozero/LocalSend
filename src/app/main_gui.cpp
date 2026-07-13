@@ -40,6 +40,7 @@
 #include <Region.h>
 #include <ScrollView.h>
 #include <SeparatorView.h>
+#include <Shape.h>
 #include <StatusBar.h>
 #include <StringItem.h>
 #include <StringView.h>
@@ -639,6 +640,8 @@ struct DiscoveredDevice {
 	// Aggiornata a ogni annuncio; la Fase 3 la confronta con l'ultima
 	// nota per capire quando rifare il fetch della lista.
 	int boardRev = 0;
+	// True se il peer gira la nostra app Haiku (badge a foglia in lista).
+	bool isHaiku = false;
 	// Ultima volta che ne abbiamo sentito parlare (annuncio o reply).
 	// Aggiornato a ogni pacchetto multicast/unicast valido del peer; il
 	// pruning periodico (kMsgPruneDevices) rimuove chi non si fa sentire
@@ -671,7 +674,7 @@ class DeviceListItem : public BListItem {
 public:
 	DeviceListItem(const char* name, const char* type, const char* ip,
 		const char* fingerprint, bool favorite = false,
-		bool priority = false)
+		bool priority = false, bool haiku = false)
 		:
 		BListItem(),
 		fName(name),
@@ -679,7 +682,8 @@ public:
 		fIp(ip),
 		fFingerprintId(fingerprint != NULL ? fingerprint : ""),
 		fFavorite(favorite),
-		fPriority(priority)
+		fPriority(priority),
+		fHaiku(haiku)
 	{
 	}
 
@@ -783,6 +787,15 @@ public:
 			owner->FillEllipse(BRect(frame.right - 36, frame.top + 8,
 				frame.right - 28, frame.top + 16));
 		}
+
+		// Badge a foglia se il peer gira la nostra app Haiku. In basso a
+		// destra, staccato dai marcatori preferito/prioritario in alto.
+		if (fHaiku) {
+			owner->PushState();
+			_DrawLeaf(owner, BRect(frame.right - 21, frame.bottom - 20,
+				frame.right - 9, frame.bottom - 6));
+			owner->PopState();
+		}
 	}
 
 	virtual void Update(BView* owner, const BFont* /*font*/)
@@ -803,6 +816,44 @@ private:
 	BString fFingerprintId;
 	bool fFavorite;
 	bool fPriority;
+	bool fHaiku;
+
+	// Disegna una piccola foglia (logo Haiku) dentro box: due curve di Bezier
+	// che formano il profilo, riempimento verde Haiku, nervatura centrale.
+	// Vettoriale: nitida a qualunque dimensione, nessuna dipendenza da font.
+	static void _DrawLeaf(BView* owner, BRect box)
+	{
+		float w = box.Width();
+		float h = box.Height();
+		BPoint tip(box.right, box.top);      // punta in alto a destra
+		BPoint base(box.left, box.bottom);   // base in basso a sinistra
+
+		BShape leaf;
+		leaf.MoveTo(tip);
+		// Lato superiore: si gonfia verso l'alto-sinistra.
+		BPoint up[3] = {
+			BPoint(box.left + w * 0.15, box.top),
+			BPoint(box.left, box.top + h * 0.35),
+			base
+		};
+		leaf.BezierTo(up);
+		// Lato inferiore: si gonfia verso il basso-destra, torna alla punta.
+		BPoint down[3] = {
+			BPoint(box.right - w * 0.15, box.bottom),
+			BPoint(box.right, box.bottom - h * 0.35),
+			tip
+		};
+		leaf.BezierTo(down);
+		leaf.Close();
+
+		owner->SetHighColor(106, 190, 69, 255); // verde foglia Haiku
+		owner->FillShape(&leaf);
+
+		// Nervatura centrale, dalla base alla punta.
+		owner->SetHighColor(60, 130, 45, 255);
+		owner->SetPenSize(1);
+		owner->StrokeLine(base, tip);
+	}
 };
 
 
@@ -2831,6 +2882,12 @@ MainWindow::StartServer(void* sslCtx)
 					dev.deviceType = msg.Has("deviceType")
 						? msg.At("deviceType").AsString()
 						: std::string("unknown");
+					// Riconoscimento Haiku (marcatore "app" o deviceModel).
+					std::string app = msg.Has("app")
+						? msg.At("app").AsString() : std::string();
+					std::string model = msg.Has("deviceModel")
+						? msg.At("deviceModel").AsString() : std::string();
+					dev.isHaiku = (app == kAppId) || (model == "Haiku");
 					AddDevice(dev);
 				}
 			}
@@ -2914,6 +2971,7 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	msg.AddString("type", copy.deviceType.c_str());
 	msg.AddString("ip", copy.host.c_str());
 	msg.AddString("fingerprint", copy.fingerprint.c_str());
+	msg.AddBool("haiku", copy.isHaiku);
 	PostMessage(&msg);
 
 	// Registrazione reciproca: appena scopriamo un peer, gli POSTiamo il
@@ -3072,6 +3130,9 @@ MainWindow::MessageReceived(BMessage* msg)
 			int32 rev = 0;
 			msg->FindInt32("boardRev", &rev);
 			dev.boardRev = rev;
+			bool haiku = false;
+			msg->FindBool("haiku", &haiku);
+			dev.isHaiku = haiku;
 			if (!dev.fingerprint.empty())
 				AddDevice(dev);
 			break;
@@ -3151,9 +3212,11 @@ MainWindow::MessageReceived(BMessage* msg)
 			if (alias) {
 				bool fav = fp ? fFavorites.Contains(fp) : false;
 				bool prio = fp ? fPriority.Contains(fp) : false;
+				bool haiku = false;
+				msg->FindBool("haiku", &haiku);
 				fDeviceList->AddItem(new DeviceListItem(
 					alias, type ? type : "", ip ? ip : "",
-					fp ? fp : "", fav, prio));
+					fp ? fp : "", fav, prio, haiku));
 				_PostPeerStats();
 			}
 			break;
@@ -4761,6 +4824,7 @@ LocalSendApp::ReadyToRun()
 			m.AddString("deviceType", p.deviceType.c_str());
 			m.AddString("fingerprint", p.fingerprint.c_str());
 			m.AddInt32("boardRev", p.boardRev);
+			m.AddBool("haiku", p.isHaiku);
 			fWindowMsgr.SendMessage(&m);
 		});
 	fAnnouncer->Start();

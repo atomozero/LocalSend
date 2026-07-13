@@ -222,6 +222,13 @@ MulticastAnnouncer::Run()
 						p.boardRev = static_cast<int>(
 							msg.At("boardRev").AsInt(0));
 					}
+					// Riconoscimento Haiku: marcatore "app" (certezza) o,
+					// come ripiego, deviceModel "Haiku".
+					std::string app = msg.Has("app")
+						? msg.At("app").AsString() : std::string();
+					std::string model = msg.Has("deviceModel")
+						? msg.At("deviceModel").AsString() : std::string();
+					p.isHaiku = (app == kAppId) || (model == "Haiku");
 					fPeerCb(p);
 				}
 

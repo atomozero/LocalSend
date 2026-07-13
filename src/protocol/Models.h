@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "protocol/Constants.h"
 #include "protocol/Json.h"
 
 namespace LocalSend {
@@ -18,6 +19,10 @@ struct DeviceInfo {
 	std::string version = "2.1";
 	std::string deviceModel = "Haiku";
 	std::string deviceType = "desktop"; // fallback per valori sconosciuti
+	// Estensione Haiku: identifica la nostra app (kAppId). In uscita e'
+	// sempre valorizzato; in ingresso (FromJson) resta vuoto se il peer non
+	// lo manda, cosi' non ci sono falsi positivi dal default.
+	std::string app = kAppId;
 	std::string fingerprint;            // in HTTP: stringa casuale persistente
 	int port = 53317;
 	std::string protocol = "http";      // "https" da L3
