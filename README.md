@@ -63,8 +63,24 @@ The **circle** is your set of favorite devices (★). Two ways to share with it:
 
 The board is served on port 53318 with the standard LocalSend v2.1 download
 API, so official LocalSend clients (and browsers, via the share link) can
-also browse and download it. **"Board visible to favorites only"**
-(Settings → Security) restricts it to your circle.
+also browse and download it.
+
+### Who can see the board
+
+**Settings → Security → "Board visible to:"** controls board access:
+
+- **Everyone** (default) — anyone on the LAN can browse and download.
+- **Favorites only** — restricted to your circle (★).
+- **Priority contacts only** — restricted to a dedicated, hand-picked
+  allow-list, separate from favorites. This is the tightest option: a
+  favorite does *not* get board access automatically — you add each PC on
+  purpose. Right-click a device in the list → **"Add to priority contacts"**
+  (they show a purple dot), and manage the full list — including offline
+  ones — via **"Manage priority contacts…"**. Identity is the device's TLS
+  fingerprint, so it can't be spoofed by renaming.
+
+Access is granted by the peer's fingerprint (Haiku peers send it) or by the
+IP of a known online device in the chosen list; everyone else gets 403.
 
 ### Desktop replicant
 

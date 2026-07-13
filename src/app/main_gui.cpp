@@ -100,6 +100,13 @@ enum {
 	kMsgTextReady		= 'TXRD',
 	kMsgTextReceived	= 'TXRC',
 	kMsgToggleFavorite	= 'TFAV',
+	// Contatti prioritari: cerchia ristretta che puo' vedere la bacheca
+	// (lista dedicata, separata dai preferiti). Toggle dal menu contestuale
+	// della lista dispositivi; gestione dalla finestra dedicata.
+	kMsgTogglePriority	= 'TPRI',
+	kMsgManagePriority	= 'MPRI',	// apri la finestra di gestione
+	kMsgPriorityRemove	= 'PRMV',	// finestra -> window: rimuovi un contatto
+	kMsgPriorityChanged	= 'PCHG',	// window -> finestra: lista aggiornata
 	kMsgPendingFiles	= 'PEND',
 	kMsgShareLink		= 'SLNK',
 	kMsgStopShare		= 'SSHR',
@@ -162,6 +169,13 @@ enum {
 
 // --- Impostazioni persistenti ----------------------------------------------
 
+// Chi puo' vedere e scaricare dalla bacheca (porta 53318).
+enum BoardVisibility {
+	kBoardEveryone = 0,		// chiunque sulla LAN (comportamento storico)
+	kBoardFavorites = 1,	// solo i preferiti (la cerchia)
+	kBoardPriority = 2		// solo i contatti prioritari (lista dedicata)
+};
+
 struct AppSettings {
 	std::string alias = "Haiku Box";
 	std::string destDir = "./ricevuti";
@@ -182,10 +196,11 @@ struct AppSettings {
 	// Se true, i file nuovi in bacheca sui preferiti vengono scaricati
 	// da soli (con registro dei gia' scaricati). Default off: opt-in.
 	bool autoDownloadBoard = false;
-	// Se true, la bacheca (porta 53318) risponde solo ai preferiti:
-	// fingerprint noto in query o IP di un preferito online. Il browser
-	// di un estraneo riceve 403. Default off = comportamento storico.
-	bool boardFavoritesOnly = false;
+	// Chi puo' vedere/scaricare dalla bacheca (porta 53318): tutti, i
+	// preferiti, o i soli contatti prioritari. Default: tutti (storico).
+	// Il filtro guarda il fingerprint in query o l'IP di un peer noto
+	// online; un estraneo riceve 403.
+	int boardVisibility = kBoardEveryone;
 
 	// Ritorna true se il file esisteva: il chiamante distingue il primo
 	// avvio (nessun settings) per generare un alias casuale una volta sola.
@@ -216,8 +231,13 @@ struct AppSettings {
 				autoAcceptFavorites = (val == "1");
 			else if (key == "autoDownloadBoard")
 				autoDownloadBoard = (val == "1");
-			else if (key == "boardFavoritesOnly")
-				boardFavoritesOnly = (val == "1");
+			else if (key == "boardVisibility")
+				boardVisibility = atoi(val.c_str());
+			else if (key == "boardFavoritesOnly") {
+				// Migrazione dalla vecchia chiave booleana.
+				if (val == "1" && boardVisibility == kBoardEveryone)
+					boardVisibility = kBoardFavorites;
+			}
 			// "language": chiave storica ignorata (ora la lingua segue
 			// le preferenze di sistema tramite il Locale Kit).
 		}
@@ -240,7 +260,7 @@ struct AppSettings {
 		fprintf(f, "autoAcceptFavorites=%d\n",
 			autoAcceptFavorites ? 1 : 0);
 		fprintf(f, "autoDownloadBoard=%d\n", autoDownloadBoard ? 1 : 0);
-		fprintf(f, "boardFavoritesOnly=%d\n", boardFavoritesOnly ? 1 : 0);
+		fprintf(f, "boardVisibility=%d\n", boardVisibility);
 		fclose(f);
 	}
 };
@@ -432,6 +452,101 @@ struct Favorites {
 };
 
 
+// --- Contatti prioritari -----------------------------------------------------
+
+static const char* kPriorityFile = "./localsend_priority";
+
+// Cerchia ristretta e "profilata" che puo' vedere la bacheca quando la
+// visibilita' e' impostata su "solo contatti prioritari". Lista dedicata,
+// indipendente dai preferiti: qui l'identita' e' il fingerprint TLS (stabile
+// e crittografico), l'alias e' il nome con cui il contatto e' stato aggiunto.
+struct PriorityContact {
+	std::string fingerprint;
+	std::string alias;
+};
+
+struct PriorityContacts {
+	std::vector<PriorityContact> contacts;
+
+	bool Contains(const std::string& fp) const
+	{
+		for (const auto& c : contacts) {
+			if (c.fingerprint == fp)
+				return true;
+		}
+		return false;
+	}
+
+	// Aggiunge (o aggiorna l'alias di) un contatto identificato dal
+	// fingerprint. L'alias e' il "profilo" leggibile mostrato all'utente.
+	void Add(const std::string& fp, const std::string& alias)
+	{
+		if (fp.empty())
+			return;
+		for (auto& c : contacts) {
+			if (c.fingerprint == fp) {
+				if (!alias.empty() && c.alias != alias) {
+					c.alias = alias;
+					Save();
+				}
+				return;
+			}
+		}
+		contacts.push_back({fp, alias});
+		Save();
+	}
+
+	void Remove(const std::string& fp)
+	{
+		for (auto it = contacts.begin(); it != contacts.end(); ++it) {
+			if (it->fingerprint == fp) {
+				contacts.erase(it);
+				Save();
+				return;
+			}
+		}
+	}
+
+	void Load()
+	{
+		FILE* f = fopen(kPriorityFile, "r");
+		if (!f)
+			return;
+		char line[512];
+		while (fgets(line, sizeof(line), f)) {
+			std::string l(line);
+			while (!l.empty()
+				&& (l.back() == '\n' || l.back() == '\r'))
+				l.pop_back();
+			if (l.empty())
+				continue;
+			// Formato: fingerprint<TAB>alias. Alias opzionale.
+			size_t tab = l.find('\t');
+			PriorityContact c;
+			if (tab == std::string::npos) {
+				c.fingerprint = l;
+			} else {
+				c.fingerprint = l.substr(0, tab);
+				c.alias = l.substr(tab + 1);
+			}
+			if (!c.fingerprint.empty())
+				contacts.push_back(c);
+		}
+		fclose(f);
+	}
+
+	void Save() const
+	{
+		FILE* f = fopen(kPriorityFile, "w");
+		if (!f)
+			return;
+		for (const auto& c : contacts)
+			fprintf(f, "%s\t%s\n", c.fingerprint.c_str(), c.alias.c_str());
+		fclose(f);
+	}
+};
+
+
 // --- Registro bacheca: file gia' scaricati -----------------------------------
 
 static const char* kBoardSeenFile = "./localsend_board_seen";
@@ -553,20 +668,24 @@ struct IncomingRequest {
 class DeviceListItem : public BListItem {
 public:
 	DeviceListItem(const char* name, const char* type, const char* ip,
-		const char* fingerprint, bool favorite = false)
+		const char* fingerprint, bool favorite = false,
+		bool priority = false)
 		:
 		BListItem(),
 		fName(name),
 		fType(type),
 		fIp(ip),
 		fFingerprintId(fingerprint != NULL ? fingerprint : ""),
-		fFavorite(favorite)
+		fFavorite(favorite),
+		fPriority(priority)
 	{
 	}
 
 	void SetFavorite(bool fav) { fFavorite = fav; }
+	void SetPriority(bool p) { fPriority = p; }
 	const BString& FingerprintId() const { return fFingerprintId; }
 	bool IsFavorite() const { return fFavorite; }
+	bool IsPriority() const { return fPriority; }
 
 	virtual void DrawItem(BView* owner, BRect frame, bool /*complete*/)
 	{
@@ -654,6 +773,14 @@ public:
 			owner->DrawString("\xe2\x98\x85",
 				BPoint(frame.right - 20, frame.top + 18));
 		}
+
+		// Pallino "contatto prioritario" (viola), a sinistra della stella
+		// cosi' i due marcatori non si sovrappongono.
+		if (fPriority) {
+			owner->SetHighColor((rgb_color){150, 90, 220, 255});
+			owner->FillEllipse(BRect(frame.right - 36, frame.top + 8,
+				frame.right - 28, frame.top + 16));
+		}
 	}
 
 	virtual void Update(BView* owner, const BFont* /*font*/)
@@ -673,6 +800,51 @@ private:
 	// quando il pruning per TTL espelle un dispositivo offline.
 	BString fFingerprintId;
 	bool fFavorite;
+	bool fPriority;
+};
+
+
+// Lista dei dispositivi scoperti: aggiunge il menu contestuale (tasto destro)
+// per marcare un peer come preferito o come contatto prioritario. Le voci
+// agiscono sulla selezione corrente, come i pulsanti gia' esistenti.
+class DeviceListView : public BListView {
+public:
+	DeviceListView()
+		:
+		BListView("devices")
+	{
+	}
+
+	virtual void MouseDown(BPoint where)
+	{
+		BMessage* msg = Window() ? Window()->CurrentMessage() : nullptr;
+		int32 buttons = 0;
+		if (msg != nullptr)
+			msg->FindInt32("buttons", &buttons);
+		if (buttons & B_SECONDARY_MOUSE_BUTTON) {
+			int32 index = IndexOf(where);
+			DeviceListItem* item
+				= dynamic_cast<DeviceListItem*>(ItemAt(index));
+			if (item != nullptr) {
+				Select(index);
+				BPopUpMenu* menu = new BPopUpMenu("device-ctx",
+					false, false);
+				menu->SetAsyncAutoDestruct(true);
+				menu->AddItem(new BMenuItem(item->IsFavorite()
+					? B_TRANSLATE("Remove from favorites")
+					: B_TRANSLATE("Add to favorites"),
+					new BMessage(kMsgToggleFavorite)));
+				menu->AddItem(new BMenuItem(item->IsPriority()
+					? B_TRANSLATE("Remove from priority contacts")
+					: B_TRANSLATE("Add to priority contacts"),
+					new BMessage(kMsgTogglePriority)));
+				menu->SetTargetForItems(BMessenger(Window()));
+				menu->Go(ConvertToScreen(where), true, true, true);
+			}
+			return;
+		}
+		BListView::MouseDown(where);
+	}
 };
 
 
@@ -1334,9 +1506,25 @@ public:
 			NULL);
 		fAutoDownloadBoardBox->SetValue(settings->autoDownloadBoard
 			? B_CONTROL_ON : B_CONTROL_OFF);
-		fBoardFavsOnlyBox = new BCheckBox(B_TRANSLATE("Board visible to favorites only"), NULL);
-		fBoardFavsOnlyBox->SetValue(settings->boardFavoritesOnly
-			? B_CONTROL_ON : B_CONTROL_OFF);
+		// Visibilita' della bacheca: tutti / preferiti / contatti prioritari.
+		fBoardVisMenu = new BPopUpMenu("boardvis");
+		fBoardVisMenu->AddItem(new BMenuItem(B_TRANSLATE("Everyone"), NULL));
+		fBoardVisMenu->AddItem(new BMenuItem(
+			B_TRANSLATE("Favorites only"), NULL));
+		fBoardVisMenu->AddItem(new BMenuItem(
+			B_TRANSLATE("Priority contacts only"), NULL));
+		{
+			int v = settings->boardVisibility;
+			if (v < 0 || v > 2)
+				v = 0;
+			fBoardVisMenu->ItemAt(v)->SetMarked(true);
+		}
+		fBoardVisField = new BMenuField(B_TRANSLATE("Board visible to:"),
+			fBoardVisMenu);
+		fManagePriorityBtn = new BButton(
+			B_TRANSLATE("Manage priority contacts…"),
+			new BMessage(kMsgManagePriority));
+
 		fHttpsBox = new BCheckBox(B_TRANSLATE("Enable HTTPS"), NULL);
 		fHttpsBox->SetValue(B_CONTROL_ON);
 		fHttpsBox->SetEnabled(false);
@@ -1382,7 +1570,11 @@ public:
 			.Add(fQuickSaveBox)
 			.Add(fAutoAcceptFavBox)
 			.Add(fAutoDownloadBoardBox)
-			.Add(fBoardFavsOnlyBox)
+			.Add(fBoardVisField)
+			.AddGroup(B_HORIZONTAL)
+				.Add(fManagePriorityBtn)
+				.AddGlue()
+			.End()
 			.AddStrut(B_USE_ITEM_SPACING)
 			.Add(MakeLabel(B_TRANSLATE("Integration")))
 			.AddGroup(B_HORIZONTAL)
@@ -1492,8 +1684,13 @@ public:
 					= (fAutoAcceptFavBox->Value() == B_CONTROL_ON);
 				fSettings->autoDownloadBoard
 					= (fAutoDownloadBoardBox->Value() == B_CONTROL_ON);
-				fSettings->boardFavoritesOnly
-					= (fBoardFavsOnlyBox->Value() == B_CONTROL_ON);
+				{
+					BMenuItem* vm = fBoardVisMenu->FindMarked();
+					int idx = vm ? fBoardVisMenu->IndexOf(vm) : 0;
+					if (idx < 0 || idx > 2)
+						idx = 0;
+					fSettings->boardVisibility = idx;
+				}
 				fSettings->Save(kSettingsFile);
 
 				// Notifica la finestra principale.
@@ -1502,6 +1699,12 @@ public:
 				PostMessage(B_QUIT_REQUESTED);
 				break;
 			}
+
+			case kMsgManagePriority:
+				// La finestra di gestione la possiede la MainWindow (ha i
+				// registri e i dispositivi): inoltra e basta.
+				fTarget->PostMessage(kMsgManagePriority);
+				break;
 
 			default:
 				BWindow::MessageReceived(msg);
@@ -1519,7 +1722,9 @@ private:
 	BCheckBox* fQuickSaveBox;
 	BCheckBox* fAutoAcceptFavBox;
 	BCheckBox* fAutoDownloadBoardBox;
-	BCheckBox* fBoardFavsOnlyBox;
+	BPopUpMenu* fBoardVisMenu;
+	BMenuField* fBoardVisField;
+	BButton* fManagePriorityBtn;
 	BCheckBox* fHttpsBox;
 	BFilePanel* fDirPanel;
 	BButton* fDeskbarBtn;
@@ -2072,6 +2277,124 @@ private:
 };
 
 
+// --- PriorityContactsWindow --------------------------------------------------
+
+// Item della lista contatti prioritari: alias + fingerprint (identita' TLS).
+// Porta il fingerprint per la rimozione.
+class PriorityItem : public BStringItem {
+public:
+	PriorityItem(const BString& label, const char* fingerprint)
+		:
+		BStringItem(label.String()),
+		fFingerprint(fingerprint)
+	{
+	}
+	const BString& Fingerprint() const { return fFingerprint; }
+private:
+	BString fFingerprint;
+};
+
+
+// Gestione della cerchia ristretta che vede la bacheca. Non tocca i registri
+// della MainWindow: riceve lo snapshot via kMsgPriorityChanged e rimanda la
+// rimozione via kMsgPriorityRemove.
+class PriorityContactsWindow : public BWindow {
+public:
+	PriorityContactsWindow(BMessenger target)
+		:
+		BWindow(BRect(180, 180, 560, 520),
+			B_TRANSLATE("Priority contacts"), B_TITLED_WINDOW,
+			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
+				| B_CLOSE_ON_ESCAPE),
+		fTarget(target)
+	{
+		BStringView* hint = new BStringView("hint",
+			B_TRANSLATE("These devices can see your board when visibility "
+				"is set to \"Priority contacts only\"."));
+		hint->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+
+		fList = new BListView("priority");
+		BScrollView* scroll = new BScrollView("pscroll", fList,
+			0, false, true, B_FANCY_BORDER);
+
+		fRemoveBtn = new BButton(B_TRANSLATE("Remove"),
+			new BMessage(kMsgPriorityRemove));
+		BButton* closeBtn = new BButton(B_TRANSLATE("Close"),
+			new BMessage(B_QUIT_REQUESTED));
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(hint)
+			.Add(scroll, 1.0)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.Add(fRemoveBtn)
+				.AddGlue()
+				.Add(closeBtn)
+			.End()
+		.End();
+
+		SetSizeLimits(300, B_SIZE_UNLIMITED, 240, B_SIZE_UNLIMITED);
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		switch (msg->what) {
+			case kMsgManagePriority:
+				Activate(true);
+				break;
+
+			case kMsgPriorityChanged:
+				_Rebuild(msg);
+				break;
+
+			case kMsgPriorityRemove:
+			{
+				PriorityItem* item = dynamic_cast<PriorityItem*>(
+					fList->ItemAt(fList->CurrentSelection()));
+				if (item != nullptr) {
+					BMessage req(kMsgPriorityRemove);
+					req.AddString("fingerprint", item->Fingerprint());
+					fTarget.SendMessage(&req);
+				}
+				break;
+			}
+
+			default:
+				BWindow::MessageReceived(msg);
+		}
+	}
+
+private:
+	void _Rebuild(BMessage* msg)
+	{
+		while (fList->CountItems() > 0)
+			delete fList->RemoveItem((int32)0);
+
+		for (int32 i = 0; ; i++) {
+			const char* fp = nullptr;
+			if (msg->FindString("fp", i, &fp) != B_OK)
+				break;
+			const char* alias = nullptr;
+			msg->FindString("alias", i, &alias);
+			BString label;
+			BString shortFp(fp);
+			if (shortFp.Length() > 16)
+				shortFp.Truncate(16).Append("\xe2\x80\xa6");
+			label << (alias && *alias ? alias : B_TRANSLATE("Unknown"))
+				<< "  \xc2\xb7  " << shortFp;
+			fList->AddItem(new PriorityItem(label, fp ? fp : ""));
+		}
+		if (fList->CountItems() == 0)
+			fList->AddItem(new BStringItem(
+				B_TRANSLATE("No priority contacts yet")));
+	}
+
+	BMessenger fTarget;
+	BListView* fList;
+	BButton* fRemoveBtn;
+};
+
+
 // --- MainWindow ------------------------------------------------------------
 
 class MainWindow : public BWindow {
@@ -2124,6 +2447,9 @@ private:
 	void _BoardChanged();
 	// Posta all'app il conteggio peer online / preferiti online (UI-thread).
 	void _PostPeerStats();
+	// Manda lo snapshot dei contatti prioritari alla finestra di gestione,
+	// se aperta (UI-thread).
+	void _PushPriorityData();
 	// Rimuove peer non sentiti da kDeviceTimeoutSeconds (UI-thread).
 	void PruneStaleDevices();
 
@@ -2148,6 +2474,7 @@ private:
 	// Cronologia e preferiti.
 	TransferHistory fHistory;
 	Favorites fFavorites;
+	PriorityContacts fPriority;
 	std::string fLastSenderAlias;
 	std::string fLastSenderFingerprint;
 
@@ -2170,6 +2497,8 @@ private:
 	BoardSeen fBoardSeen;
 	// Finestra Bacheca, se aperta (invalida quando l'utente la chiude).
 	BMessenger fBoardWinMsgr;
+	// Finestra di gestione contatti prioritari, se aperta.
+	BMessenger fPriorityWinMsgr;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -2198,6 +2527,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fSink.EnsureDir();
 	fHistory.Load();
 	fFavorites.Load();
+	fPriority.Load();
 	fBoardSeen.Load();
 
 	// Header.
@@ -2207,7 +2537,7 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fHeader->SetStatus(B_TRANSLATE("Ready to receive"), true, false);
 
 	// Lista dispositivi con scroll.
-	fDeviceList = new BListView("devices");
+	fDeviceList = new DeviceListView();
 	fDeviceList->SetInvocationMessage(new BMessage(kMsgDeviceInvoked));
 	BScrollView* scroll = new BScrollView("scroll", fDeviceList,
 		0, false, true, B_NO_BORDER);
@@ -2781,9 +3111,10 @@ MainWindow::MessageReceived(BMessage* msg)
 			msg->FindString("fingerprint", &fp);
 			if (alias) {
 				bool fav = fp ? fFavorites.Contains(fp) : false;
+				bool prio = fp ? fPriority.Contains(fp) : false;
 				fDeviceList->AddItem(new DeviceListItem(
 					alias, type ? type : "", ip ? ip : "",
-					fp ? fp : "", fav));
+					fp ? fp : "", fav, prio));
 				_PostPeerStats();
 			}
 			break;
@@ -2874,6 +3205,68 @@ MainWindow::MessageReceived(BMessage* msg)
 				}
 			}
 			_PostPeerStats();
+			break;
+		}
+
+		case kMsgTogglePriority:
+		{
+			// Marca/smarca il dispositivo selezionato come contatto
+			// prioritario, catturandone l'alias come "profilo".
+			std::lock_guard<std::mutex> lock(fDevicesMtx);
+			int32 sel = fDeviceList->CurrentSelection();
+			if (sel >= 0 && sel < (int32)fDevices.size()) {
+				auto& dev = fDevices[sel];
+				DeviceListItem* item = dynamic_cast<DeviceListItem*>(
+					fDeviceList->ItemAt(sel));
+				if (item && !dev.fingerprint.empty()) {
+					if (fPriority.Contains(dev.fingerprint)) {
+						fPriority.Remove(dev.fingerprint);
+						item->SetPriority(false);
+					} else {
+						fPriority.Add(dev.fingerprint, dev.alias);
+						item->SetPriority(true);
+					}
+					fDeviceList->InvalidateItem(sel);
+					_PushPriorityData();
+				}
+			}
+			break;
+		}
+
+		case kMsgManagePriority:
+		{
+			if (fPriorityWinMsgr.IsValid()) {
+				fPriorityWinMsgr.SendMessage(kMsgManagePriority);
+			} else {
+				PriorityContactsWindow* pw
+					= new PriorityContactsWindow(BMessenger(this));
+				fPriorityWinMsgr = BMessenger(pw);
+				pw->Show();
+				_PushPriorityData();
+			}
+			break;
+		}
+
+		case kMsgPriorityRemove:
+		{
+			// Dalla finestra di gestione: rimuovi un contatto per fingerprint.
+			const char* fp = nullptr;
+			msg->FindString("fingerprint", &fp);
+			if (fp && *fp) {
+				fPriority.Remove(fp);
+				// Aggiorna il marcatore se il dispositivo e' in lista.
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				for (int32 i = 0; i < fDeviceList->CountItems(); i++) {
+					DeviceListItem* it = dynamic_cast<DeviceListItem*>(
+						fDeviceList->ItemAt(i));
+					if (it && it->FingerprintId() == fp) {
+						it->SetPriority(false);
+						fDeviceList->InvalidateItem(i);
+						break;
+					}
+				}
+			}
+			_PushPriorityData();
 			break;
 		}
 
@@ -4134,21 +4527,43 @@ MainWindow::_PushBoardData()
 bool
 MainWindow::_BoardAccessAllowed(const HttpRequest& req)
 {
-	if (!fSettings->boardFavoritesOnly)
+	if (fSettings->boardVisibility == kBoardEveryone)
 		return true;
+
+	// Predicato "questo fingerprint e' ammesso?" secondo la modalita'.
+	auto allowed = [this](const std::string& fp) {
+		if (fp.empty())
+			return false;
+		if (fSettings->boardVisibility == kBoardPriority)
+			return fPriority.Contains(fp);
+		return fFavorites.Contains(fp); // kBoardFavorites
+	};
 
 	// Peer Haiku: manda il proprio fingerprint in query (estensione).
-	std::string fp = req.Query("fingerprint");
-	if (!fp.empty() && fFavorites.Contains(fp))
+	if (allowed(req.Query("fingerprint")))
 		return true;
 
-	// Fallback (browser di un preferito): IP di un preferito online.
+	// Fallback (browser di un contatto ammesso): IP di un peer online noto.
 	std::lock_guard<std::mutex> lock(fDevicesMtx);
 	for (const auto& d : fDevices) {
-		if (d.host == req.clientHost && fFavorites.Contains(d.fingerprint))
+		if (d.host == req.clientHost && allowed(d.fingerprint))
 			return true;
 	}
 	return false;
+}
+
+
+void
+MainWindow::_PushPriorityData()
+{
+	if (!fPriorityWinMsgr.IsValid())
+		return;
+	BMessage data(kMsgPriorityChanged);
+	for (const auto& c : fPriority.contacts) {
+		data.AddString("fp", c.fingerprint.c_str());
+		data.AddString("alias", c.alias.c_str());
+	}
+	fPriorityWinMsgr.SendMessage(&data);
 }
 
 

@@ -1,7 +1,8 @@
-1	es	x-vnd.LocalSend	2709370803
+1	es	x-vnd.LocalSend	45121568
 Received: 	LocalSend		Recibido: 
 Device name:	LocalSend		Nombre del dispositivo:
 Send text…	LocalSend		Enviar texto…
+Priority contacts only	LocalSend		Solo contactos prioritarios
 PIN (empty = none):	LocalSend		PIN (vacío = ninguno):
 Stop sharing	LocalSend		Dejar de compartir
 Save to file	LocalSend		Guardar en archivo
@@ -12,32 +13,42 @@ Remove from Deskbar	LocalSend		Quitar del Deskbar
 General	LocalSend		General
 Sent to %d of %d devices	LocalSend		Enviado a %d de %d dispositivos
 Message received	LocalSend		Mensaje recibido
+No priority contacts yet	LocalSend		Sin contactos prioritarios
 Reject	LocalSend		Rechazar
 Integration	LocalSend		Integración
 Save folder:	LocalSend		Carpeta de guardado:
 Settings	LocalSend		Ajustes
+Manage priority contacts…	LocalSend		Gestionar contactos prioritarios…
 Copy	LocalSend		Copiar
 Download	LocalSend		Descargar
 Clear history	LocalSend		Borrar historial
 Port change will take effect after restart.	LocalSend		El cambio de puerto se aplicará tras reiniciar.
+Close	LocalSend		Cerrar
 Quit	LocalSend		Salir
 Sending…	LocalSend		Enviando…
 Choose files to send	LocalSend		Elegir archivos para enviar
+Remove from favorites	LocalSend		Quitar de favoritos
 %d files on the board	LocalSend		%d archivos en el tablón
 Security	LocalSend		Seguridad
+Remove	LocalSend		Quitar
+These devices can see your board when visibility is set to \"Priority contacts only\".	LocalSend		Estos dispositivos pueden ver tu tablón cuando la visibilidad está en \"Solo contactos prioritarios\".
+Remove from priority contacts	LocalSend		Quitar de contactos prioritarios
 Clear board	LocalSend		Vaciar tablón
 Link active on port %d. Open in browser:	LocalSend		Enlace activo en puerto %d. Abrir en navegador:
 Cannot create TLS certificate.	LocalSend		No se puede crear el certificado TLS.
+Add to favorites	LocalSend		Agregar a favoritos
 Open in editor	LocalSend		Abrir en editor
+Favorites only	LocalSend		Solo favoritos
 Type the message to send:	LocalSend		Escribe el mensaje a enviar:
 Accept	LocalSend		Aceptar
 Browse…	LocalSend		Examinar…
 Send failed	LocalSend		Envío fallido
 Board is empty	LocalSend		Tablón vacío
 Settings…	LocalSend		Ajustes…
-Open	LocalSend		Abrir
 From: 	LocalSend		De: 
+Open	LocalSend		Abrir
 Ready to receive	LocalSend		Listo para recibir
+Unknown	LocalSend		Desconocido
 No favorites online right now.	LocalSend		Ningún favorito en línea ahora.
 Devices on network	LocalSend		Dispositivos en la red
 Cannot open port (already in use?)	LocalSend		¿No se puede abrir el puerto (ocupado?)
@@ -55,15 +66,18 @@ Save	LocalSend		Guardar
 Add files…	LocalSend		Añadir archivos…
 Board	LocalSend		Tablón
 Refresh	LocalSend		Actualizar
-OK	LocalSend		OK
+Board visible to:	LocalSend		Tablón visible para:
 Send file…	LocalSend		Enviar archivo…
+OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		Aceptar automáticamente de favoritos
 Auto-download from favorites' boards	LocalSend		Descargar automáticamente del tablón de favoritos
-Board visible to favorites only	LocalSend		Tablón visible solo para favoritos
 Remove from board	LocalSend		Quitar del tablón
 Send to circle…	LocalSend		Enviar al círculo…
 Sent to %d devices	LocalSend		Enviado a %d dispositivos
 Download and open	LocalSend		Descargar y abrir
 Select a device from the list.	LocalSend		Selecciona un dispositivo de la lista.
 Share via link…	LocalSend		Compartir por enlace…
+Add to priority contacts	LocalSend		Añadir a contactos prioritarios
+Priority contacts	LocalSend		Contactos prioritarios
+Everyone	LocalSend		Todos
  files sent successfully	LocalSend		 archivos enviados con éxito
