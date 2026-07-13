@@ -54,6 +54,11 @@ public:
 	// (tick periodico o TriggerBurst) esce gia' con i valori nuovi.
 	void SetBoard(int boardRev, bool downloadActive);
 
+	// Aggiorna a caldo l'alias annunciato (nome dispositivo). Senza questo,
+	// rinominando il dispositivo il faro continuerebbe ad annunciare il
+	// vecchio nome fino al riavvio. Thread-safe.
+	void SetAlias(const std::string& alias);
+
 private:
 	void Run();
 	// Serializza l'annuncio corrente sotto lock (fInfo puo' cambiare

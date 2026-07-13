@@ -128,6 +128,14 @@ MulticastAnnouncer::SetBoard(int boardRev, bool downloadActive)
 }
 
 
+void
+MulticastAnnouncer::SetAlias(const std::string& alias)
+{
+	std::lock_guard<std::mutex> lock(fInfoMtx);
+	fInfo.alias = alias;
+}
+
+
 std::string
 MulticastAnnouncer::_AnnounceJson(bool announce)
 {

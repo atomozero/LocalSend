@@ -148,6 +148,8 @@ enum {
 	kMsgOpenBoard			= 'BOPN',	// replicant -> app
 	kMsgBoardChanged		= 'BRDC',	// window -> app (rev/active/count)
 	kMsgPeerStats			= 'PSTA',	// window -> app (peer online)
+	kMsgIdentityChanged		= 'IDCH',	// window -> app (alias cambiato)
+	kMsgPeerHeard			= 'PHRD',	// app -> window (peer sentito dal faro)
 	kMsgAddToBoard			= 'BADD',	// app -> window (refs da pubblicare)
 
 	// Fase 3 "bacheca remota": lato osservatore. Quando un peer annuncia un
@@ -2452,8 +2454,15 @@ private:
 	void _PushPriorityData();
 	// Rimuove peer non sentiti da kDeviceTimeoutSeconds (UI-thread).
 	void PruneStaleDevices();
+	// Snapshot thread-safe del nostro DeviceInfo come JSON. Serve ai lettori
+	// off-thread (route del server, register-back): l'alias e' una
+	// std::string mutata sul looper (kMsgSettingsSave), leggerla dal thread
+	// del server senza lock sarebbe una data race. boardRev/download restano
+	// senza lock di proposito (word-sized, torn read benigno).
+	std::string _MyInfoJson();
 
 	DeviceInfo* fInfo;
+	std::mutex fInfoMtx; // protegge l'alias di fInfo (lettori off-thread)
 	AppSettings* fSettings;
 
 	HeaderView* fHeader;
@@ -2793,7 +2802,7 @@ MainWindow::StartServer(void* sslCtx)
 
 	// Route: info (GET). Ritorna il nostro DeviceInfo.
 	auto infoHandler = [this](const HttpRequest&) {
-		return HttpServerResponse::Json(200, fInfo->ToJson().Dump());
+		return HttpServerResponse::Json(200, _MyInfoJson());
 	};
 	fServer.Route("GET", kApiInfo, infoHandler);
 	fServer.Route("GET", "/api/localsend/v1/info", infoHandler);
@@ -2828,7 +2837,7 @@ MainWindow::StartServer(void* sslCtx)
 		} catch (...) {
 			// Body non-JSON: rispondiamo comunque con le nostre info.
 		}
-		return HttpServerResponse::Json(200, fInfo->ToJson().Dump());
+		return HttpServerResponse::Json(200, _MyInfoJson());
 	});
 
 	if (!fServer.Start(fInfo->port)) {
@@ -2915,7 +2924,7 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	// su TLS handshake e non deve congelare la UI.
 	std::string host = copy.host;
 	int port = copy.port;
-	std::string myInfo = fInfo->ToJson().Dump();
+	std::string myInfo = _MyInfoJson();
 	std::thread([host, port, myInfo]() {
 		SocketHttpClient client;
 		client.EnableTls();
@@ -2960,6 +2969,14 @@ MainWindow::PruneStaleDevices()
 		}
 	}
 	_PostPeerStats();
+}
+
+
+std::string
+MainWindow::_MyInfoJson()
+{
+	std::lock_guard<std::mutex> lock(fInfoMtx);
+	return fInfo->ToJson().Dump();
 }
 
 
@@ -3037,6 +3054,28 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgDeviceInvoked:
 			SendToSelected();
 			break;
+
+		case kMsgPeerHeard:
+		{
+			// Peer sentito dal faro (inoltrato dall'app): ricostruisci il
+			// device ed elabora la scoperta sul looper della window.
+			DiscoveredDevice dev;
+			const char* s = nullptr;
+			if (msg->FindString("alias", &s) == B_OK) dev.alias = s;
+			if (msg->FindString("host", &s) == B_OK) dev.host = s;
+			if (msg->FindString("deviceType", &s) == B_OK) dev.deviceType = s;
+			if (msg->FindString("fingerprint", &s) == B_OK)
+				dev.fingerprint = s;
+			int32 port = kDefaultPort;
+			msg->FindInt32("port", &port);
+			dev.port = port;
+			int32 rev = 0;
+			msg->FindInt32("boardRev", &rev);
+			dev.boardRev = rev;
+			if (!dev.fingerprint.empty())
+				AddDevice(dev);
+			break;
+		}
 
 		case kMsgPruneDevices:
 			PruneStaleDevices();
@@ -3823,11 +3862,22 @@ MainWindow::MessageReceived(BMessage* msg)
 		{
 			// Applica le impostazioni modificate.
 
-			// Nome dispositivo.
-			fInfo->alias = fSettings->alias;
+			// Nome dispositivo. La scrittura dell'alias e' sotto lock: i
+			// lettori off-thread (route del server) usano _MyInfoJson().
+			{
+				std::lock_guard<std::mutex> lock(fInfoMtx);
+				fInfo->alias = fSettings->alias;
+			}
 			fHeader->SetDeviceName(fSettings->alias.c_str());
 			SetTitle(BString("LocalSend - ")
 				<< fSettings->alias.c_str());
+			// Propaga il nuovo nome al faro multicast (che ha la sua copia):
+			// senza questo continuerebbe ad annunciare il nome vecchio.
+			{
+				BMessage idm(kMsgIdentityChanged);
+				idm.AddString("alias", fSettings->alias.c_str());
+				be_app->PostMessage(&idm);
+			}
 
 			// Cartella di destinazione.
 			fSink.SetDir(fSettings->destDir);
@@ -4237,7 +4287,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 
 	// Info del dispositivo: usata dai client API prima del prepare-download.
 	fDownloadServer.Route("GET", kApiInfo, [this](const HttpRequest&) {
-		return HttpServerResponse::Json(200, fInfo->ToJson().Dump());
+		return HttpServerResponse::Json(200, _MyInfoJson());
 	});
 
 	// prepare-download conforme a LocalSend v2.1 ("download mode"): info del
@@ -4248,7 +4298,7 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 		if (!_BoardAccessAllowed(req))
 			return HttpServerResponse::Empty(403);
 		JsonValue root = JsonValue::Object();
-		root["info"] = fInfo->ToJson();
+		root["info"] = JsonValue::Parse(_MyInfoJson());
 		root["sessionId"] = "board";
 		JsonValue filesJson = JsonValue::Object();
 		{
@@ -4597,6 +4647,7 @@ public:
 	virtual void ArgvReceived(int32 argc, char** argv);
 	virtual void RefsReceived(BMessage* msg);
 	virtual void MessageReceived(BMessage* msg);
+	virtual bool QuitRequested();
 
 	// Settato da main() prima di Run() quando l'app e' lanciata con
 	// --background (es. dall'autostart al login): la finestra parte
@@ -4613,6 +4664,10 @@ private:
 	TlsIdentity fTls;
 	MulticastAnnouncer* fAnnouncer;
 	MainWindow* fWindow;
+	// Messenger verso la window: la callback dell'announcer (thread separato)
+	// smista i peer di qui. A differenza del puntatore raw, una SendMessage a
+	// un looper morto (window distrutta in chiusura) fallisce senza crash.
+	BMessenger fWindowMsgr;
 	bool fStartHidden = false;
 
 	// Canale replicant (Fase 0): iscritti via kMsgReplicantSubscribe e
@@ -4654,6 +4709,19 @@ LocalSendApp::~LocalSendApp()
 }
 
 
+bool
+LocalSendApp::QuitRequested()
+{
+	// Ferma il faro PRIMA che la finestra venga distrutta: il thread
+	// dell'announcer invoca una callback che tocca fWindow, quindi va
+	// spento (join) mentre la window e' ancora viva, per evitare la
+	// dereferenziazione di un puntatore penzolante in chiusura.
+	if (fAnnouncer != nullptr)
+		fAnnouncer->Stop();
+	return BApplication::QuitRequested();
+}
+
+
 void
 LocalSendApp::ReadyToRun()
 {
@@ -4667,6 +4735,7 @@ LocalSendApp::ReadyToRun()
 	}
 
 	fWindow = new MainWindow(&fInfo, &fSettings);
+	fWindowMsgr = BMessenger(fWindow);
 	fWindow->StartServer(fTls.ctx);
 	// In modalita' --background partiamo con la finestra nascosta:
 	// solo l'icona del replicant e' visibile, il server di ricezione
@@ -4676,22 +4745,23 @@ LocalSendApp::ReadyToRun()
 	fWindow->Show();
 
 	fAnnouncer = new MulticastAnnouncer(fInfo);
-	// Callback dal thread dell'announcer: confezioniamo un DiscoveredDevice
-	// e lo passiamo alla MainWindow (che lockera' il suo mutex interno).
-	// PostMessage e' thread-safe, ma AddDevice fa di piu' (dedup + update
-	// lastSeen): tiene il proprio lock.
+	// Callback dal thread dell'announcer: impacchetta il peer e lo INOLTRA
+	// alla window via BMessenger, invece di chiamarla direttamente col
+	// puntatore raw. Cosi', se la window e' stata distrutta in chiusura,
+	// la SendMessage fallisce senza crash invece di dereferenziare memoria
+	// liberata. AddDevice gira quindi sul looper della window.
 	fAnnouncer->SetPeerHeardCallback(
 		[this](const MulticastAnnouncer::Peer& p) {
-			if (fWindow == nullptr)
+			if (!fWindowMsgr.IsValid())
 				return;
-			DiscoveredDevice dev;
-			dev.alias = p.alias;
-			dev.host = p.host;
-			dev.port = p.port;
-			dev.deviceType = p.deviceType;
-			dev.fingerprint = p.fingerprint;
-			dev.boardRev = p.boardRev;
-			fWindow->AddDevice(dev);
+			BMessage m(kMsgPeerHeard);
+			m.AddString("alias", p.alias.c_str());
+			m.AddString("host", p.host.c_str());
+			m.AddInt32("port", p.port);
+			m.AddString("deviceType", p.deviceType.c_str());
+			m.AddString("fingerprint", p.fingerprint.c_str());
+			m.AddInt32("boardRev", p.boardRev);
+			fWindowMsgr.SendMessage(&m);
 		});
 	fAnnouncer->Start();
 
@@ -4818,6 +4888,23 @@ LocalSendApp::MessageReceived(BMessage* msg)
 			_BroadcastState();
 			return;
 		}
+
+		case kMsgIdentityChanged:
+		{
+			// Dalla MainWindow: il nome dispositivo e' cambiato. Aggiorna
+			// la copia annunciata dal faro e ri-annuncia subito, cosi' i
+			// peer vedono il nuovo nome senza aspettare il riavvio.
+			const char* alias = nullptr;
+			if (msg->FindString("alias", &alias) == B_OK && alias) {
+				fInfo.alias = alias;
+				if (fAnnouncer != nullptr) {
+					fAnnouncer->SetAlias(alias);
+					fAnnouncer->TriggerBurst();
+				}
+			}
+			return;
+		}
+
 
 		case kMsgStopShare:
 		{
