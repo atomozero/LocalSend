@@ -12,6 +12,7 @@ tools/check/json.hpp
 # Build
 build/
 *.o
+*.d
 /localsend-send
 /localsend-receive
 /LocalSend

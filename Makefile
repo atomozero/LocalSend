@@ -142,10 +142,15 @@ install-catalogs: catalogs
 		"/boot/home/config/non-packaged/data/locale/catalogs/$(CATALOG_SIG)/"
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+# Ricompila automaticamente i .cpp quando cambiano gli header inclusi.
+# I .d sono generati da -MMD -MP accanto ai rispettivi .o.
+-include $(SEND_OBJ:.o=.d) $(RECV_OBJ:.o=.d) $(GUI_OBJ:.o=.d)
 
 clean:
 	rm -f $(SEND_OBJ) $(RECV_OBJ) $(GUI_OBJ) $(SEND_BIN) $(RECV_BIN) $(GUI_BIN) $(GUI_BIN).rsrc "Send with LocalSend" addon.rsrc $(REPLICANT_BIN) replicant.rsrc $(DESKTOP_BIN) desktop.rsrc test-receive-bin test-board-bin
+	rm -f $(SEND_OBJ:.o=.d) $(RECV_OBJ:.o=.d) $(GUI_OBJ:.o=.d)
 	rm -f $(CATALOG_DIR)/*.catalog
 
 # Test host-side del lato ricevente (L1-prep): logica di protocollo pura, nessun
