@@ -1664,6 +1664,11 @@ public:
 	virtual void MessageReceived(BMessage* msg)
 	{
 		switch (msg->what) {
+			case kMsgShowSettings:
+				// Finestra gia' aperta: portala in primo piano (istanza unica).
+				Activate(true);
+				break;
+
 			case kMsgBrowseDir:
 				fDirPanel->Show();
 				break;
@@ -2559,6 +2564,8 @@ private:
 	BMessenger fBoardWinMsgr;
 	// Finestra di gestione contatti prioritari, se aperta.
 	BMessenger fPriorityWinMsgr;
+	// Finestra Impostazioni, se aperta (singola istanza: invalida alla chiusura).
+	BMessenger fSettingsWinMsgr;
 
 	// Dispositivi scoperti.
 	std::mutex fDevicesMtx;
@@ -3916,8 +3923,15 @@ MainWindow::MessageReceived(BMessage* msg)
 
 		case kMsgShowSettings:
 		{
-			SettingsWindow* sw = new SettingsWindow(fSettings, this);
-			sw->Show();
+			// Istanza unica: se e' gia' aperta, la riattiva; il messenger
+			// diventa invalido da solo quando l'utente la chiude.
+			if (fSettingsWinMsgr.IsValid()) {
+				fSettingsWinMsgr.SendMessage(kMsgShowSettings);
+			} else {
+				SettingsWindow* sw = new SettingsWindow(fSettings, this);
+				fSettingsWinMsgr = BMessenger(sw);
+				sw->Show();
+			}
 			break;
 		}
 
