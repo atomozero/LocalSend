@@ -228,6 +228,7 @@ MulticastAnnouncer::Run()
 						? msg.At("app").AsString() : std::string();
 					std::string model = msg.Has("deviceModel")
 						? msg.At("deviceModel").AsString() : std::string();
+					p.deviceModel = model;
 					p.isHaiku = (app == kAppId) || (model == "Haiku");
 					fPeerCb(p);
 				}

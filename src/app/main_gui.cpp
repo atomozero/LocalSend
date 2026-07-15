@@ -635,6 +635,9 @@ struct DiscoveredDevice {
 	std::string host;
 	int port;
 	std::string deviceType;
+	// Piattaforma/OS del peer ("Windows", "Linux", "macOS", "iPhone",
+	// "Haiku", ...): campo "deviceModel" del protocollo. Vuoto se assente.
+	std::string deviceModel;
 	std::string fingerprint;
 	// Estensione Haiku: revisione della bacheca del peer (0 = nessuna).
 	// Aggiornata a ogni annuncio; la Fase 3 la confronta con l'ultima
@@ -672,13 +675,14 @@ struct IncomingRequest {
 
 class DeviceListItem : public BListItem {
 public:
-	DeviceListItem(const char* name, const char* type, const char* ip,
-		const char* fingerprint, bool favorite = false,
+	DeviceListItem(const char* name, const char* type, const char* model,
+		const char* ip, const char* fingerprint, bool favorite = false,
 		bool priority = false, bool haiku = false)
 		:
 		BListItem(),
 		fName(name),
 		fType(type),
+		fModel(model != NULL ? model : ""),
 		fIp(ip),
 		fFingerprintId(fingerprint != NULL ? fingerprint : ""),
 		fFavorite(favorite),
@@ -764,8 +768,12 @@ public:
 			detailColor = tint_color(ui_color(B_LIST_ITEM_TEXT_COLOR), 0.7);
 		owner->SetHighColor(detailColor);
 
+		// Riga di dettaglio: OS/piattaforma (se noto) - tipo - IP.
 		BString detail;
-		detail << fType << " - " << fIp;
+		if (fModel.Length() > 0)
+			detail << fModel << " - " << fType << " - " << fIp;
+		else
+			detail << fType << " - " << fIp;
 		detailFont.GetHeight(&fh);
 		owner->DrawString(detail.String(),
 			BPoint(textLeft, frame.bottom - 4 - fh.descent));
@@ -810,6 +818,7 @@ public:
 private:
 	BString fName;
 	BString fType;
+	BString fModel; // piattaforma/OS del peer (vuoto se sconosciuto)
 	BString fIp;
 	// Fingerprint del peer: chiave usata per ritrovare l'item da rimuovere
 	// quando il pruning per TTL espelle un dispositivo offline.
@@ -2894,6 +2903,7 @@ MainWindow::StartServer(void* sslCtx)
 						? msg.At("app").AsString() : std::string();
 					std::string model = msg.Has("deviceModel")
 						? msg.At("deviceModel").AsString() : std::string();
+					dev.deviceModel = model;
 					dev.isHaiku = (app == kAppId) || (model == "Haiku");
 					AddDevice(dev);
 				}
@@ -2976,6 +2986,7 @@ MainWindow::AddDevice(const DiscoveredDevice& dev)
 	BMessage msg(kMsgDeviceFound);
 	msg.AddString("alias", copy.alias.c_str());
 	msg.AddString("type", copy.deviceType.c_str());
+	msg.AddString("model", copy.deviceModel.c_str());
 	msg.AddString("ip", copy.host.c_str());
 	msg.AddString("fingerprint", copy.fingerprint.c_str());
 	msg.AddBool("haiku", copy.isHaiku);
@@ -3129,6 +3140,7 @@ MainWindow::MessageReceived(BMessage* msg)
 			if (msg->FindString("alias", &s) == B_OK) dev.alias = s;
 			if (msg->FindString("host", &s) == B_OK) dev.host = s;
 			if (msg->FindString("deviceType", &s) == B_OK) dev.deviceType = s;
+			if (msg->FindString("deviceModel", &s) == B_OK) dev.deviceModel = s;
 			if (msg->FindString("fingerprint", &s) == B_OK)
 				dev.fingerprint = s;
 			int32 port = kDefaultPort;
@@ -3210,10 +3222,12 @@ MainWindow::MessageReceived(BMessage* msg)
 		{
 			const char* alias = nullptr;
 			const char* type = nullptr;
+			const char* model = nullptr;
 			const char* ip = nullptr;
 			const char* fp = nullptr;
 			msg->FindString("alias", &alias);
 			msg->FindString("type", &type);
+			msg->FindString("model", &model);
 			msg->FindString("ip", &ip);
 			msg->FindString("fingerprint", &fp);
 			if (alias) {
@@ -3222,8 +3236,8 @@ MainWindow::MessageReceived(BMessage* msg)
 				bool haiku = false;
 				msg->FindBool("haiku", &haiku);
 				fDeviceList->AddItem(new DeviceListItem(
-					alias, type ? type : "", ip ? ip : "",
-					fp ? fp : "", fav, prio, haiku));
+					alias, type ? type : "", model ? model : "",
+					ip ? ip : "", fp ? fp : "", fav, prio, haiku));
 				_PostPeerStats();
 			}
 			break;
@@ -4836,6 +4850,7 @@ LocalSendApp::ReadyToRun()
 			m.AddString("host", p.host.c_str());
 			m.AddInt32("port", p.port);
 			m.AddString("deviceType", p.deviceType.c_str());
+			m.AddString("deviceModel", p.deviceModel.c_str());
 			m.AddString("fingerprint", p.fingerprint.c_str());
 			m.AddInt32("boardRev", p.boardRev);
 			m.AddBool("haiku", p.isHaiku);

@@ -25,6 +25,10 @@ public:
 		std::string host;
 		int port = 0;
 		std::string deviceType;
+		// Piattaforma/OS del peer (campo "deviceModel" del protocollo:
+		// "Windows", "Linux", "macOS", "iPhone", "Haiku", ...). Vuoto se
+		// il peer non lo annuncia.
+		std::string deviceModel;
 		// Estensione Haiku: revisione della bacheca del peer (0 = nessuna).
 		int boardRev = 0;
 		// True se il peer gira la nostra app Haiku (marcatore "app" o
