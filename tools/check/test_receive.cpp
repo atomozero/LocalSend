@@ -210,6 +210,24 @@ TestSessionIpBinding()
 
 
 static void
+TestDownloadAccess()
+{
+	std::printf("DownloadAccessStatus (pin come accesso alternativo)...\n");
+	// Identita' ammessa: sempre 0, il PIN e' irrilevante.
+	CHECK(DownloadAccessStatus(true, "", "") == 0);
+	CHECK(DownloadAccessStatus(true, "1234", "") == 0);
+	CHECK(DownloadAccessStatus(true, "1234", "9999") == 0);
+	// Non ammessa, nessun PIN configurato: rifiutato.
+	CHECK(DownloadAccessStatus(false, "", "") == 403);
+	CHECK(DownloadAccessStatus(false, "", "1234") == 403);
+	// Non ammessa, PIN configurato: 401 se manca o errato, 0 se corretto.
+	CHECK(DownloadAccessStatus(false, "1234", "") == 401);
+	CHECK(DownloadAccessStatus(false, "1234", "0000") == 401);
+	CHECK(DownloadAccessStatus(false, "1234", "1234") == 0);
+}
+
+
+static void
 TestQueryParsing()
 {
 	std::printf("ParseQuery / UrlDecode...\n");
@@ -240,6 +258,7 @@ main()
 	TestSessionPartialAndBusy();
 	TestSessionNothingAccepted();
 	TestSessionIpBinding();
+	TestDownloadAccess();
 	TestQueryParsing();
 
 	if (gFailures == 0) {

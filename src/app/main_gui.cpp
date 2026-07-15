@@ -2511,6 +2511,11 @@ private:
 	// Filtro "bacheca solo ai preferiti" per le route del download server
 	// (thread server): fingerprint in query o IP di un preferito online.
 	bool _BoardAccessAllowed(const HttpRequest& req);
+	// Esito d'accesso alle route del download server come codice HTTP:
+	// 0 = ammesso, 401 = PIN richiesto/errato, 403 = rifiutato. Il PIN (se
+	// impostato) e' una via d'accesso ALTERNATIVA all'identita', cosi' i peer
+	// gia' autorizzati (auto-sync bacheca) non lo devono conoscere.
+	int _BoardGate(const HttpRequest& req);
 	// Manda lo snapshot completo (mia bacheca + bacheche remote) alla
 	// BoardWindow, se aperta (UI-thread).
 	void _PushBoardData();
@@ -4362,8 +4367,9 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 
 	// Pagina HTML con la lista dei file scaricabili.
 	fDownloadServer.Route("GET", "/", [this](const HttpRequest& req) {
-		if (!_BoardAccessAllowed(req))
-			return HttpServerResponse::Empty(403);
+		int gate = _BoardGate(req);
+		if (gate != 0)
+			return HttpServerResponse::Empty(gate);
 		BString html;
 		html << "<!DOCTYPE html><html><head>"
 			"<meta charset=\"utf-8\">"
@@ -4411,8 +4417,9 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 	// Download del file (link della pagina HTML: id = indice).
 	fDownloadServer.Route("GET", "/download",
 		[this](const HttpRequest& req) {
-		if (!_BoardAccessAllowed(req))
-			return HttpServerResponse::Empty(403);
+		int gate = _BoardGate(req);
+		if (gate != 0)
+			return HttpServerResponse::Empty(gate);
 		return _ServeSharedFile(atoi(req.Query("id").c_str()));
 	});
 
@@ -4422,12 +4429,16 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 	});
 
 	// prepare-download conforme a LocalSend v2.1 ("download mode"): info del
-	// dispositivo + sessionId fissa + mappa fileId -> metadati. E' l'endpoint
-	// che i peer (Fase 3) e i client ufficiali usano per sfogliare la bacheca.
+	// dispositivo + sessionId + mappa fileId -> metadati. E' l'endpoint che i
+	// peer (Fase 3) e i client ufficiali usano per sfogliare la bacheca.
+	// Accesso via identita' o ?pin= (gate -> 401 se il PIN e' richiesto/errato).
+	// La sessionId e' stabile ("board"): un client che rinfresca e rimanda il
+	// suo ?sessionId= ottiene la stessa sessione, cioe' il resume del protocollo.
 	fDownloadServer.Route("POST", kApiPrepareDownload,
 		[this](const HttpRequest& req) {
-		if (!_BoardAccessAllowed(req))
-			return HttpServerResponse::Empty(403);
+		int gate = _BoardGate(req);
+		if (gate != 0)
+			return HttpServerResponse::Empty(gate);
 		JsonValue root = JsonValue::Object();
 		root["info"] = JsonValue::Parse(_MyInfoJson());
 		root["sessionId"] = "board";
@@ -4448,8 +4459,9 @@ MainWindow::StartDownloadServer(const std::vector<std::string>& files,
 	// download conforme a LocalSend v2.1: fileId "file-N" -> indice N-1.
 	fDownloadServer.Route("GET", kApiDownload,
 		[this](const HttpRequest& req) {
-		if (!_BoardAccessAllowed(req))
-			return HttpServerResponse::Empty(403);
+		int gate = _BoardGate(req);
+		if (gate != 0)
+			return HttpServerResponse::Empty(gate);
 		if (req.Query("sessionId") != "board")
 			return HttpServerResponse::Empty(403);
 		std::string fileId = req.Query("fileId");
@@ -4731,6 +4743,16 @@ MainWindow::_BoardAccessAllowed(const HttpRequest& req)
 			return true;
 	}
 	return false;
+}
+
+
+int
+MainWindow::_BoardGate(const HttpRequest& req)
+{
+	// Identita' (fingerprint/IP di un contatto) o, in alternativa, ?pin=.
+	// Logica pura in DownloadAccessStatus, cosi' e' testabile senza rete.
+	return DownloadAccessStatus(_BoardAccessAllowed(req), fSettings->pin,
+		req.Query("pin"));
 }
 
 

@@ -74,4 +74,16 @@ ParseQuery(const std::string& queryString)
 	return out;
 }
 
+
+int
+DownloadAccessStatus(bool identityAllowed, const std::string& configuredPin,
+	const std::string& queryPin)
+{
+	if (identityAllowed)
+		return 0; // gia' autorizzato per identita': nessun PIN richiesto
+	if (!configuredPin.empty())
+		return queryPin == configuredPin ? 0 : 401; // PIN richiesto/errato
+	return 403; // nessuna identita', nessun PIN configurato: rifiutato
+}
+
 } // namespace LocalSend

@@ -79,6 +79,13 @@ std::string UrlDecode(const std::string& s);
 // Spezza una query string ("a=1&b=2", senza il '?') in coppie decodificate.
 std::map<std::string, std::string> ParseQuery(const std::string& queryString);
 
+// Decide l'accesso al download API (bacheca) come codice HTTP: 0 = ammesso,
+// 401 = PIN richiesto/errato, 403 = rifiutato. L'identita' (gia' autorizzata a
+// monte) e' la via principale; se non lo e', un PIN configurato lo autentica in
+// alternativa (conforme al PIN del protocollo). Logica pura, testabile.
+int DownloadAccessStatus(bool identityAllowed, const std::string& configuredPin,
+	const std::string& queryPin);
+
 } // namespace LocalSend
 
 #endif // _LOCALSEND_IHTTP_SERVER_H
