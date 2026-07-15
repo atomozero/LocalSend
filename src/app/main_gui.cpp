@@ -48,6 +48,8 @@
 #include <View.h>
 #include <Window.h>
 
+#include <OS.h>
+
 #include <cstdio>
 #include <map>
 #include <mutex>
@@ -2467,6 +2469,115 @@ private:
 };
 
 
+// --- PinPromptWindow -------------------------------------------------------
+// Richiesta PIN sincrona e modale, sul modello di BAlert::Go(): il thread di
+// invio la mostra e si blocca finche' l'utente non conferma o annulla. Serve a
+// inviare verso un peer protetto da PIN (che risponde 401 al prepare-upload).
+// Ritorna il PIN inserito, o "" se annullata.
+class PinPromptWindow : public BWindow {
+public:
+	PinPromptWindow(const char* peerName)
+		:
+		BWindow(BRect(0, 0, 320, 130), B_TRANSLATE("PIN required"),
+			B_MODAL_WINDOW,
+			B_NOT_RESIZABLE | B_ASYNCHRONOUS_CONTROLS
+				| B_AUTO_UPDATE_SIZE_LIMITS | B_CLOSE_ON_ESCAPE),
+		fSem(create_sem(0, "pin_prompt")),
+		fOut(NULL),
+		fReleased(false)
+	{
+		BString prompt(B_TRANSLATE("\"%peer%\" requires a PIN:"));
+		prompt.ReplaceFirst("%peer%",
+			peerName && *peerName ? peerName : "?");
+		BStringView* label = new BStringView("label", prompt.String());
+		fField = new BTextControl("pin", NULL, "", NULL);
+		BButton* ok = new BButton(B_TRANSLATE("Send"), new BMessage(kPinOk));
+		BButton* cancel = new BButton(B_TRANSLATE("Cancel"),
+			new BMessage(B_QUIT_REQUESTED));
+		ok->MakeDefault(true);
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(label)
+			.Add(fField)
+			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
+				.AddGlue()
+				.Add(cancel)
+				.Add(ok)
+			.End()
+		.End();
+	}
+
+	// Chiamata dal thread di invio: mostra la finestra e attende la risposta.
+	std::string Go()
+	{
+		std::string result;
+		fOut = &result;
+		sem_id sem = fSem; // copia locale: la finestra non tocca il sem dopo
+		                   // il rilascio, quindi possiamo eliminarlo qui.
+		CenterOnScreen();
+		Show();
+		while (acquire_sem(sem) == B_INTERRUPTED)
+			;
+		delete_sem(sem);
+		return result;
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		if (msg->what == kPinOk) {
+			if (fOut != NULL)
+				*fOut = fField->Text();
+			_Release();
+			Quit(); // bypassa QuitRequested: _Release e' gia' avvenuto
+			return;
+		}
+		BWindow::MessageReceived(msg);
+	}
+
+	virtual bool QuitRequested()
+	{
+		// Annulla / Esc / chiusura: risultato vuoto, sblocca comunque Go().
+		_Release();
+		return true;
+	}
+
+private:
+	static const uint32 kPinOk = 'PnOK';
+
+	void _Release()
+	{
+		if (!fReleased) {
+			fReleased = true;
+			release_sem(fSem);
+		}
+	}
+
+	sem_id fSem;
+	std::string* fOut;
+	bool fReleased;
+	BTextControl* fField;
+};
+
+
+// Invia con ritento sul PIN: se il peer risponde 401 al prepare-upload, chiede
+// il PIN all'utente (modale) e riprova una volta. Il PIN vuoto = annullato.
+static SendReport
+SendWithPinRetry(UploadSession& session, const std::string& host, int port,
+	const std::vector<FileMetadata>& files, const char* peerName,
+	UploadSession::ProgressFn progress = nullptr)
+{
+	SendReport r = session.Send(host, port, files, "", progress);
+	if (r.prepareStatus == 401) {
+		PinPromptWindow* w = new PinPromptWindow(peerName);
+		std::string pin = w->Go();
+		if (!pin.empty())
+			r = session.Send(host, port, files, pin, progress);
+	}
+	return r;
+}
+
+
 // --- MainWindow ------------------------------------------------------------
 
 class MainWindow : public BWindow {
@@ -4160,7 +4271,8 @@ MainWindow::SendText(const std::string& host, int port,
 		SocketHttpClient http;
 		http.EnableTls();
 		UploadSession session(http, *fInfo);
-		SendReport report = session.Send(host, port, files, "");
+		SendReport report = SendWithPinRetry(session, host, port, files,
+			host.c_str());
 
 		remove(tmpPath.c_str());
 
@@ -4206,7 +4318,8 @@ MainWindow::SendFiles(const std::string& host, int port,
 		SocketHttpClient http;
 		http.EnableTls();
 		UploadSession session(http, *fInfo);
-		SendReport report = session.Send(host, port, files, "",
+		SendReport report = SendWithPinRetry(session, host, port, files,
+			host.c_str(),
 			[this](long long sent, long long total) {
 				if (total <= 0)
 					return;
@@ -4310,8 +4423,8 @@ MainWindow::SendToCircle(const std::vector<std::string>& paths)
 			SocketHttpClient http;
 			http.EnableTls();
 			UploadSession session(http, *fInfo);
-			SendReport report = session.Send(tgt.host, tgt.port,
-				files, "",
+			SendReport report = SendWithPinRetry(session, tgt.host,
+				tgt.port, files, tgt.alias.c_str(),
 				[this, t, n](long long sent, long long total) {
 					if (total <= 0)
 						return;
