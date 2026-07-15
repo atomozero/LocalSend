@@ -36,15 +36,23 @@ Tutti su `http://0.0.0.0:53317` in L1 (TLS in L3). Path in `protocol/Constants.h
   - `Accepted`        -> `200` + `BuildPrepareUploadResponse(sessionId, tokens).Dump()`
   - `NothingAccepted` -> `204` (nessun file accettato)
   - `SessionBusy`     -> `409` (un'altra sessione in corso)
-- PIN (quando arrivera', vedi L3): `?pin=...` letto via `req.Query("pin")`; se errato
-  rispondere `401`.
+- PIN: `?pin=...` letto via `req.Query("pin")`; se errato rispondere `401`.
+- Anti-flood: troppe prepare-upload ravvicinate -> `429 Too Many Requests`
+  (finestra a soglia larga, un uso legittimo non ci arriva).
+- `Prepare(req, accept, senderHost)` registra l'IP del mittente (`req.clientHost`)
+  nella sessione: serve al binding dell'upload (vedi 2.2).
 
 ### 2.2 `POST /api/localsend/v2/upload?sessionId=&fileId=&token=`
 - Estrarre i tre parametri con `ParseQuery` (o `req.Query(...)`).
-- `ReceiveSession::ValidateUpload(sessionId, fileId, token)`:
-  - falso -> `403` (sessione/fileId/token non validi, o file gia' ricevuto).
-  - vero  -> scrivere il body (byte grezzi) nel file di destinazione, poi
-    `ReceiveSession::MarkReceived(fileId)` e rispondere `200`.
+- Parametri mancanti (sessionId/fileId/token vuoti) -> `400` (distinto dal `403`
+  del token non valido).
+- `ReceiveSession::ValidateUpload(sessionId, fileId, token, senderHost)`:
+  - falso -> `403` (sessione/fileId/token non validi, file gia' ricevuto, **o
+    IP diverso** da quello del prepare-upload: il token non e' riusabile da un
+    altro indirizzo).
+  - vero  -> se i metadati portano uno `sha256`, verificarlo sui byte ricevuti
+    (mismatch -> `500`, file scartato: niente file corrotti su disco); poi
+    scrivere il body, `MarkReceived(fileId)` e rispondere `200`.
 - A `IsComplete()` true: sessione finita; chiamare `Reset()` per accettarne una
   nuova. (In L1 una sessione alla volta, come il protocollo prevede.)
 

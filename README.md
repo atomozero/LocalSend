@@ -20,7 +20,10 @@ If LocalSend for Haiku saves you time, consider supporting development: [![Buy M
   them on the board, Shift+drop to send them straight to all online favorites
 * **Send to circle**: one click sends files to every online favorite at once
 * Drag & drop support and Tracker context-menu integration
-* Favorites, transfer history, notifications, and PIN protection
+* Favorites, transfer history, notifications, and PIN protection — enforced
+  both when receiving and when sending to a PIN-protected peer
+* Integrity-checked transfers: received files are verified against the
+  sender's `sha256` and discarded on mismatch
 * BFS MIME type integration for received files
 * Parallel file uploads for improved performance
 * Localized via the Haiku Locale Kit (English, Italian, Japanese, Chinese,
@@ -148,6 +151,40 @@ Note: the `LocalSendDesktop` replicant binary is registered in the MIME
 database by `mimeset` during the build. If you move it, run
 `mimeset -f LocalSendDesktop` on the new location so Tracker can restore
 the desktop replicant after a reboot.
+
+## Protocol conformance
+
+Implements the LocalSend **v2.1** protocol and interoperates with the official
+clients. Discovery uses multicast (`224.0.0.167:53317`) with the HTTP
+`/register` two-way fallback; transfers use HTTPS with a self-signed
+certificate whose SHA-256 is the device fingerprint.
+
+Endpoints served: `/info` (v1 and v2), `/register`, `/prepare-upload`,
+`/upload`, `/cancel` (upload API) and `/info`, `/prepare-download`, `/download`
+(download API, used by the shared board and browsers).
+
+Security and robustness details:
+
+* **PIN** protection is honored in both directions and on both APIs: the
+  receiver answers `401` until the correct `?pin=` is supplied, and the sender
+  prompts for the PIN and retries when a peer requires one.
+* **Session/IP binding**: `upload` is accepted only from the same IP that ran
+  `prepare-upload`; a valid token replayed from another address is rejected
+  with `403`.
+* **Integrity**: when the metadata carries an `sha256`, the received bytes are
+  hashed and compared before anything touches disk; a mismatch is rejected and
+  discarded.
+* **Status codes**: `prepare-upload` returns `200`/`204`/`400`/`401`/`403`/
+  `409`/`429`, and `upload` returns `400` for missing parameters (vs. `403`
+  for an invalid token). A generous rate limit answers `429 Too Many Requests`
+  to floods.
+
+The download API is centered on the Haiku shared board: its session id is
+stable (`board`), so a client that resends `?sessionId=` after a refresh
+resumes the same session, and access is granted by contact identity or, as an
+alternative, by the configured PIN.
+
+Run the protocol-level unit tests with `make check`.
 
 ## Be careful
 > **Developer's Note**: This software may contain traces of peanuts and LLM. It has been developed with passion for the Haiku platform.
