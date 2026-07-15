@@ -16,7 +16,7 @@ COPYRIGHT="2026 atomozero"
 LICENSE="MIT"
 REVISION="1"
 SOURCE_URI="https://github.com/atomozero/LocalSend/archive/refs/tags/v$portVersion.tar.gz"
-CHECKSUM_SHA256=""
+CHECKSUM_SHA256="0f43bc005ccc8274ae9aa788f5e8e1b77c31c187eccf93657ff26e9a01ada413"
 SOURCE_DIR="LocalSend-$portVersion"
 
 ARCHITECTURES="x86_64"
