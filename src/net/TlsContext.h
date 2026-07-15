@@ -22,6 +22,11 @@ TlsIdentity CreateSelfSignedTls(const std::string& commonName);
 // Libera il contesto SSL.
 void FreeTlsIdentity(TlsIdentity& identity);
 
+// SHA-256 di un buffer, come stringa esadecimale minuscola. Usato per il
+// fingerprint del certificato e per verificare l'integrita' dei file ricevuti
+// contro il campo "sha256" dei metadati (protocollo LocalSend v2.1).
+std::string Sha256Hex(const std::string& data);
+
 } // namespace LocalSend
 
 #endif // _LOCALSEND_TLS_CONTEXT_H

@@ -2813,6 +2813,22 @@ MainWindow::StartServer(void* sslCtx)
 		std::string name = meta ? meta->fileName : fileId;
 		std::string mimeType = meta ? meta->fileType : "";
 
+		// Verifica integrita': se il mittente ha dichiarato uno sha256, i byte
+		// ricevuti devono corrispondervi, altrimenti scartiamo (niente file
+		// corrotti su disco). Confronto case-insensitive; sha256 vuoto = skip.
+		if (meta && !meta->sha256.empty()) {
+			std::string want = meta->sha256;
+			for (char& c : want) {
+				if (c >= 'A' && c <= 'Z')
+					c += 32;
+			}
+			if (Sha256Hex(req.body) != want) {
+				fprintf(stderr, "sha256 non corrisponde per %s: scartato\n",
+					name.c_str());
+				return HttpServerResponse::Empty(500);
+			}
+		}
+
 		std::string outPath, werr;
 		if (!fSink.Save(name, req.body, mimeType, &outPath, &werr))
 			return HttpServerResponse::Empty(500);

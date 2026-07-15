@@ -209,6 +209,20 @@ main(int argc, char** argv)
 		std::string name = meta ? meta->fileName : fileId;
 		std::string mimeType = meta ? meta->fileType : "";
 
+		// Verifica integrita' contro lo sha256 dichiarato (se presente).
+		if (meta && !meta->sha256.empty()) {
+			std::string want = meta->sha256;
+			for (char& c : want) {
+				if (c >= 'A' && c <= 'Z')
+					c += 32;
+			}
+			if (Sha256Hex(req.body) != want) {
+				fprintf(stderr, "sha256 non corrisponde (%s): scartato\n",
+					name.c_str());
+				return HttpServerResponse::Empty(500);
+			}
+		}
+
 		std::string outPath, werr;
 		if (!sink.Save(name, req.body, mimeType, &outPath, &werr)) {
 			fprintf(stderr, "scrittura fallita (%s): %s\n", name.c_str(),

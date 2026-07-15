@@ -34,6 +34,14 @@ Sha256Hex(const unsigned char* data, int len)
 } // namespace
 
 
+std::string
+Sha256Hex(const std::string& data)
+{
+	return Sha256Hex(reinterpret_cast<const unsigned char*>(data.data()),
+		static_cast<int>(data.size()));
+}
+
+
 TlsIdentity
 CreateSelfSignedTls(const std::string& commonName)
 {
