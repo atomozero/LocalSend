@@ -3446,7 +3446,7 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgAbout:
 		{
 			BAlert* alert = new BAlert("About LocalSend",
-				"LocalSend for Haiku v1.3.1\n\n"
+				"LocalSend for Haiku v1.4.0\n\n"
 				"Native LocalSend v2.1 client.\n"
 				"Share files over LAN with any device.\n\n"
 				"by atomozero\n"
