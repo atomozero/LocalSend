@@ -656,6 +656,11 @@ struct DiscoveredDevice {
 // Tre tick di annuncio (3*5s) + un piccolo cuscinetto coprono jitter / pacchetti
 // persi senza far sparire un peer ancora vivo.
 static const int kDeviceTimeoutSeconds = 20;
+// Anti-flood del prepare-upload: al massimo N richieste per finestra di
+// M secondi, oltre le quali si risponde 429 Too Many Requests. Soglia larga:
+// un uso legittimo non arriva mai a tante prepare-upload cosi' ravvicinate.
+static const int kPrepareRateWindowSeconds = 10;
+static const int kPrepareRateMax = 15;
 // Cadenza del pruning periodico.
 static const int kDevicePruneIntervalSeconds = 5;
 
@@ -2545,6 +2550,10 @@ private:
 	int fRecvTotal = 0;
 	int fRecvDone = 0;
 
+	// Anti-flood prepare-upload (stato toccato solo dal thread del server).
+	time_t fPrepWindowStart = 0;
+	int fPrepCount = 0;
+
 	// Cronologia e preferiti.
 	TransferHistory fHistory;
 	Favorites fFavorites;
@@ -2729,6 +2738,15 @@ MainWindow::StartServer(void* sslCtx)
 
 	// Route: prepare-upload.
 	fServer.Route("POST", kApiPrepareUpload, [this](const HttpRequest& req) {
+		// Anti-flood: troppe prepare-upload ravvicinate -> 429.
+		time_t now = time(nullptr);
+		if (now - fPrepWindowStart >= kPrepareRateWindowSeconds) {
+			fPrepWindowStart = now;
+			fPrepCount = 0;
+		}
+		if (++fPrepCount > kPrepareRateMax)
+			return HttpServerResponse::Empty(429);
+
 		// Verifica PIN se configurato.
 		if (!fSettings->pin.empty()) {
 			std::string pin = req.Query("pin");
@@ -2804,6 +2822,10 @@ MainWindow::StartServer(void* sslCtx)
 		std::string sessionId = req.Query("sessionId");
 		std::string fileId = req.Query("fileId");
 		std::string token = req.Query("token");
+
+		// Parametri obbligatori mancanti -> 400 (non 403).
+		if (sessionId.empty() || fileId.empty() || token.empty())
+			return HttpServerResponse::Empty(400);
 
 		if (!fSession.ValidateUpload(sessionId, fileId, token,
 				req.clientHost))

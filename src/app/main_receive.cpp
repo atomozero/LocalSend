@@ -140,6 +140,17 @@ main(int argc, char** argv)
 	// 1) prepare-upload: verifica PIN, chiedi conferma, genera sessionId+token.
 	server.Route("POST", kApiPrepareUpload,
 		[&](const HttpRequest& req) {
+		// Anti-flood: max 15 prepare-upload ogni 10s -> 429 (server a thread
+		// singolo, lo stato static e' sicuro).
+		static time_t rateWindowStart = 0;
+		static int rateCount = 0;
+		time_t now = time(nullptr);
+		if (now - rateWindowStart >= 10) {
+			rateWindowStart = now;
+			rateCount = 0;
+		}
+		if (++rateCount > 15)
+			return HttpServerResponse::Empty(429);
 		// Verifica PIN se richiesto.
 		if (!requiredPin.empty()) {
 			std::string pin = req.Query("pin");
@@ -200,6 +211,10 @@ main(int argc, char** argv)
 		std::string sessionId = req.Query("sessionId");
 		std::string fileId = req.Query("fileId");
 		std::string token = req.Query("token");
+
+		// Parametri obbligatori mancanti -> 400.
+		if (sessionId.empty() || fileId.empty() || token.empty())
+			return HttpServerResponse::Empty(400);
 
 		if (!session.ValidateUpload(sessionId, fileId, token,
 				req.clientHost))
