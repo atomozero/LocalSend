@@ -2767,7 +2767,8 @@ MainWindow::StartServer(void* sslCtx)
 				return HttpServerResponse::Empty(403);
 		}
 
-		PrepareOutcome out = fSession.Prepare(in);
+		PrepareOutcome out = fSession.Prepare(in,
+			ReceiveSession::AcceptPolicy(), req.clientHost);
 		switch (out.status) {
 			case PrepareStatus::SessionBusy:
 				return HttpServerResponse::Empty(409);
@@ -2804,7 +2805,8 @@ MainWindow::StartServer(void* sslCtx)
 		std::string fileId = req.Query("fileId");
 		std::string token = req.Query("token");
 
-		if (!fSession.ValidateUpload(sessionId, fileId, token))
+		if (!fSession.ValidateUpload(sessionId, fileId, token,
+				req.clientHost))
 			return HttpServerResponse::Empty(403);
 
 		const FileMetadata* meta = fSession.File(fileId);

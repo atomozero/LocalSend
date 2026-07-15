@@ -15,7 +15,7 @@ ReceiveSession::ReceiveSession(TokenGen gen)
 
 PrepareOutcome
 ReceiveSession::Prepare(const IncomingPrepareUpload& req,
-	const AcceptPolicy& accept)
+	const AcceptPolicy& accept, const std::string& senderHost)
 {
 	if (fActive)
 		return PrepareOutcome{PrepareStatus::SessionBusy, {}};
@@ -37,6 +37,7 @@ ReceiveSession::Prepare(const IncomingPrepareUpload& req,
 	fSessionId = fGenerator();
 	result.sessionId = fSessionId;
 	fEntries = std::move(entries);
+	fSenderHost = senderHost;
 	fActive = true;
 	return PrepareOutcome{PrepareStatus::Accepted, result};
 }
@@ -44,9 +45,15 @@ ReceiveSession::Prepare(const IncomingPrepareUpload& req,
 
 bool
 ReceiveSession::ValidateUpload(const std::string& sessionId,
-	const std::string& fileId, const std::string& token) const
+	const std::string& fileId, const std::string& token,
+	const std::string& senderHost) const
 {
 	if (!fActive || sessionId != fSessionId)
+		return false;
+	// Binding all'IP: se la sessione e' legata a un host e l'upload arriva da
+	// un IP noto e diverso, rifiuta (token intercettato da un altro IP).
+	if (!fSenderHost.empty() && !senderHost.empty()
+			&& senderHost != fSenderHost)
 		return false;
 	auto it = fEntries.find(fileId);
 	if (it == fEntries.end())
@@ -96,6 +103,7 @@ ReceiveSession::Reset()
 {
 	fActive = false;
 	fSessionId.clear();
+	fSenderHost.clear();
 	fEntries.clear();
 }
 

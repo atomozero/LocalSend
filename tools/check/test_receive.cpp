@@ -181,6 +181,35 @@ TestSessionNothingAccepted()
 
 
 static void
+TestSessionIpBinding()
+{
+	std::printf("ReceiveSession: binding all'IP del mittente...\n");
+	IncomingPrepareUpload req = ParsePrepareUploadRequest(MakeRequestBody());
+	ReceiveSession s(Counter());
+
+	// Sessione legata all'IP 10.0.0.5.
+	PrepareOutcome out = s.Prepare(req, ReceiveSession::AcceptPolicy(),
+		"10.0.0.5");
+	CHECK(out.status == PrepareStatus::Accepted);
+	const std::string& tok1 = out.result.fileTokens["file-1"];
+
+	// Upload dallo stesso IP: ok.
+	CHECK(s.ValidateUpload("T2", "file-1", tok1, "10.0.0.5"));
+	// Upload da un IP diverso: rifiutato anche con token valido.
+	CHECK(!s.ValidateUpload("T2", "file-1", tok1, "10.0.0.9"));
+	// IP sconosciuto (vuoto): il binding non si applica (retro-compat).
+	CHECK(s.ValidateUpload("T2", "file-1", tok1, ""));
+
+	// Senza binding (host vuoto in Prepare) qualunque IP passa.
+	ReceiveSession s2(Counter());
+	PrepareOutcome out2 = s2.Prepare(req);
+	CHECK(out2.status == PrepareStatus::Accepted);
+	const std::string& tok2 = out2.result.fileTokens["file-1"];
+	CHECK(s2.ValidateUpload("T2", "file-1", tok2, "1.2.3.4"));
+}
+
+
+static void
 TestQueryParsing()
 {
 	std::printf("ParseQuery / UrlDecode...\n");
@@ -210,6 +239,7 @@ main()
 	TestSessionAcceptAll();
 	TestSessionPartialAndBusy();
 	TestSessionNothingAccepted();
+	TestSessionIpBinding();
 	TestQueryParsing();
 
 	if (gFailures == 0) {

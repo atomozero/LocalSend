@@ -176,7 +176,8 @@ main(int argc, char** argv)
 			}
 		}
 
-		PrepareOutcome out = session.Prepare(in);
+		PrepareOutcome out = session.Prepare(in,
+			ReceiveSession::AcceptPolicy(), req.clientHost);
 		switch (out.status) {
 			case PrepareStatus::SessionBusy:
 				return HttpServerResponse::Empty(409);
@@ -200,7 +201,8 @@ main(int argc, char** argv)
 		std::string fileId = req.Query("fileId");
 		std::string token = req.Query("token");
 
-		if (!session.ValidateUpload(sessionId, fileId, token))
+		if (!session.ValidateUpload(sessionId, fileId, token,
+				req.clientHost))
 			return HttpServerResponse::Empty(403);
 
 		const FileMetadata* meta = session.File(fileId);

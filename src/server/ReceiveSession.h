@@ -36,13 +36,18 @@ public:
 
 	// Gestisce un prepare-upload in arrivo: sceglie i file accettati e assegna
 	// i token. Crea una nuova sessione solo se almeno un file e' accettato.
+	// 'senderHost' e' l'IP del mittente (dal socket): la sessione vi resta
+	// legata, cosi' l'upload puo' essere rifiutato se arriva da un IP diverso
+	// (requisito del protocollo). Vuoto = nessun binding (test/legacy).
 	PrepareOutcome Prepare(const IncomingPrepareUpload& req,
-		const AcceptPolicy& accept = nullptr);
+		const AcceptPolicy& accept = nullptr,
+		const std::string& senderHost = "");
 
 	// Valida una richiesta di upload (sessionId + fileId + token coerenti con
-	// la sessione attiva e file non gia' ricevuto).
+	// la sessione attiva e file non gia' ricevuto). Se la sessione e' legata a
+	// un IP e 'senderHost' e' noto e diverso, l'upload viene rifiutato.
 	bool ValidateUpload(const std::string& sessionId, const std::string& fileId,
-		const std::string& token) const;
+		const std::string& token, const std::string& senderHost = "") const;
 
 	// Segna un file come ricevuto per intero. Ritorna false se sconosciuto.
 	bool MarkReceived(const std::string& fileId);
@@ -75,6 +80,7 @@ private:
 	TokenGen fGenerator;
 	bool fActive = false;
 	std::string fSessionId;
+	std::string fSenderHost; // IP del mittente legato alla sessione (vuoto = no)
 	std::map<std::string, Entry> fEntries; // fileId -> stato
 };
 
