@@ -1,11 +1,14 @@
-1	en	x-vnd.LocalSend	45121568
+1	en	x-vnd.LocalSend	1778767245
+%d device on network	LocalSend		%d device on network
 Received: 	LocalSend		Received: 
+Send	LocalSend		Send
+About	LocalSend		About
 Device name:	LocalSend		Device name:
 Send text…	LocalSend		Send text…
 Priority contacts only	LocalSend		Priority contacts only
 PIN (empty = none):	LocalSend		PIN (empty = none):
-Stop sharing	LocalSend		Stop sharing
 Save to file	LocalSend		Save to file
+Stop sharing	LocalSend		Stop sharing
 Cancel	LocalSend		Cancel
 My board	LocalSend		My board
 Download all	LocalSend		Download all
@@ -15,11 +18,13 @@ Sent to %d of %d devices	LocalSend		Sent to %d of %d devices
 Message received	LocalSend		Message received
 No priority contacts yet	LocalSend		No priority contacts yet
 Reject	LocalSend		Reject
+\"%peer%\" requires a PIN:	LocalSend		\"%peer%\" requires a PIN:
 Integration	LocalSend		Integration
 Save folder:	LocalSend		Save folder:
 Settings	LocalSend		Settings
 Manage priority contacts…	LocalSend		Manage priority contacts…
 Copy	LocalSend		Copy
+File…	LocalSend		File…
 Download	LocalSend		Download
 Clear history	LocalSend		Clear history
 Port change will take effect after restart.	LocalSend		Port change will take effect after restart.
@@ -37,12 +42,16 @@ Clear board	LocalSend		Clear board
 Link active on port %d. Open in browser:	LocalSend		Link active on port %d. Open in browser:
 Cannot create TLS certificate.	LocalSend		Cannot create TLS certificate.
 Add to favorites	LocalSend		Add to favorites
+Drop the files on a device, or select one first.	LocalSend		Drop the files on a device, or select one first.
+Add or remove favorite	LocalSend		Add or remove favorite
 Open in editor	LocalSend		Open in editor
 Favorites only	LocalSend		Favorites only
 Type the message to send:	LocalSend		Type the message to send:
 Accept	LocalSend		Accept
+Text…	LocalSend		Text…
 Browse…	LocalSend		Browse…
 Send failed	LocalSend		Send failed
+%d devices on network	LocalSend		%d devices on network
 Board is empty	LocalSend		Board is empty
 Settings…	LocalSend		Settings…
 From: 	LocalSend		From: 
@@ -50,7 +59,6 @@ Open	LocalSend		Open
 Ready to receive	LocalSend		Ready to receive
 Unknown	LocalSend		Unknown
 No favorites online right now.	LocalSend		No favorites online right now.
-Devices on network	LocalSend		Devices on network
 Cannot open port (already in use?)	LocalSend		Cannot open port (already in use?)
 Network	LocalSend		Network
 File received	LocalSend		File received
@@ -61,23 +69,26 @@ History	LocalSend		History
 Add to Deskbar	LocalSend		Add to Deskbar
 Incoming transfer	LocalSend		Incoming transfer
 Quick save (accept all)	LocalSend		Quick save (accept all)
+PIN required	LocalSend		PIN required
 Enable HTTPS	LocalSend		Enable HTTPS
 Save	LocalSend		Save
 Add files…	LocalSend		Add files…
 Board	LocalSend		Board
 Refresh	LocalSend		Refresh
+Drag files here, or straight onto a device	LocalSend		Drag files here, or straight onto a device
 Board visible to:	LocalSend		Board visible to:
 Send file…	LocalSend		Send file…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		Auto-accept from favorites
 Auto-download from favorites' boards	LocalSend		Auto-download from favorites' boards
+Tools	LocalSend		Tools
 Remove from board	LocalSend		Remove from board
 Send to circle…	LocalSend		Send to circle…
 Sent to %d devices	LocalSend		Sent to %d devices
 Download and open	LocalSend		Download and open
 Select a device from the list.	LocalSend		Select a device from the list.
 Share via link…	LocalSend		Share via link…
-Add to priority contacts	LocalSend		Add to priority contacts
 Priority contacts	LocalSend		Priority contacts
+Add to priority contacts	LocalSend		Add to priority contacts
 Everyone	LocalSend		Everyone
  files sent successfully	LocalSend		 files sent successfully

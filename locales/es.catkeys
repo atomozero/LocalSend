@@ -1,11 +1,14 @@
-1	es	x-vnd.LocalSend	45121568
+1	es	x-vnd.LocalSend	1778767245
+%d device on network	LocalSend		%d dispositivo en la red
 Received: 	LocalSend		Recibido: 
+Send	LocalSend		Enviar
+About	LocalSend		Acerca de
 Device name:	LocalSend		Nombre del dispositivo:
 Send text…	LocalSend		Enviar texto…
 Priority contacts only	LocalSend		Solo contactos prioritarios
 PIN (empty = none):	LocalSend		PIN (vacío = ninguno):
-Stop sharing	LocalSend		Dejar de compartir
 Save to file	LocalSend		Guardar en archivo
+Stop sharing	LocalSend		Dejar de compartir
 Cancel	LocalSend		Cancelar
 My board	LocalSend		Mi tablón
 Download all	LocalSend		Descargar todo
@@ -15,11 +18,13 @@ Sent to %d of %d devices	LocalSend		Enviado a %d de %d dispositivos
 Message received	LocalSend		Mensaje recibido
 No priority contacts yet	LocalSend		Sin contactos prioritarios
 Reject	LocalSend		Rechazar
+\"%peer%\" requires a PIN:	LocalSend		\"%peer%\" requiere un PIN:
 Integration	LocalSend		Integración
 Save folder:	LocalSend		Carpeta de guardado:
 Settings	LocalSend		Ajustes
 Manage priority contacts…	LocalSend		Gestionar contactos prioritarios…
 Copy	LocalSend		Copiar
+File…	LocalSend		Archivo…
 Download	LocalSend		Descargar
 Clear history	LocalSend		Borrar historial
 Port change will take effect after restart.	LocalSend		El cambio de puerto se aplicará tras reiniciar.
@@ -37,12 +42,16 @@ Clear board	LocalSend		Vaciar tablón
 Link active on port %d. Open in browser:	LocalSend		Enlace activo en puerto %d. Abrir en navegador:
 Cannot create TLS certificate.	LocalSend		No se puede crear el certificado TLS.
 Add to favorites	LocalSend		Agregar a favoritos
+Drop the files on a device, or select one first.	LocalSend		Suelta los archivos en un dispositivo, o selecciona uno primero.
+Add or remove favorite	LocalSend		Añadir o quitar favorito
 Open in editor	LocalSend		Abrir en editor
 Favorites only	LocalSend		Solo favoritos
 Type the message to send:	LocalSend		Escribe el mensaje a enviar:
 Accept	LocalSend		Aceptar
+Text…	LocalSend		Texto…
 Browse…	LocalSend		Examinar…
 Send failed	LocalSend		Envío fallido
+%d devices on network	LocalSend		%d dispositivos en la red
 Board is empty	LocalSend		Tablón vacío
 Settings…	LocalSend		Ajustes…
 From: 	LocalSend		De: 
@@ -50,7 +59,6 @@ Open	LocalSend		Abrir
 Ready to receive	LocalSend		Listo para recibir
 Unknown	LocalSend		Desconocido
 No favorites online right now.	LocalSend		Ningún favorito en línea ahora.
-Devices on network	LocalSend		Dispositivos en la red
 Cannot open port (already in use?)	LocalSend		¿No se puede abrir el puerto (ocupado?)
 Network	LocalSend		Red
 File received	LocalSend		Archivo recibido
@@ -61,23 +69,26 @@ History	LocalSend		Historial
 Add to Deskbar	LocalSend		Añadir al Deskbar
 Incoming transfer	LocalSend		Transferencia entrante
 Quick save (accept all)	LocalSend		Guardado rápido (aceptar todo)
+PIN required	LocalSend		PIN requerido
 Enable HTTPS	LocalSend		Habilitar HTTPS
 Save	LocalSend		Guardar
 Add files…	LocalSend		Añadir archivos…
 Board	LocalSend		Tablón
 Refresh	LocalSend		Actualizar
+Drag files here, or straight onto a device	LocalSend		Arrastra archivos aquí, o directamente sobre un dispositivo
 Board visible to:	LocalSend		Tablón visible para:
 Send file…	LocalSend		Enviar archivo…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		Aceptar automáticamente de favoritos
 Auto-download from favorites' boards	LocalSend		Descargar automáticamente del tablón de favoritos
+Tools	LocalSend		Herramientas
 Remove from board	LocalSend		Quitar del tablón
 Send to circle…	LocalSend		Enviar al círculo…
 Sent to %d devices	LocalSend		Enviado a %d dispositivos
 Download and open	LocalSend		Descargar y abrir
 Select a device from the list.	LocalSend		Selecciona un dispositivo de la lista.
 Share via link…	LocalSend		Compartir por enlace…
-Add to priority contacts	LocalSend		Añadir a contactos prioritarios
 Priority contacts	LocalSend		Contactos prioritarios
+Add to priority contacts	LocalSend		Añadir a contactos prioritarios
 Everyone	LocalSend		Todos
  files sent successfully	LocalSend		 archivos enviados con éxito

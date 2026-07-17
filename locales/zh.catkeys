@@ -1,11 +1,14 @@
-1	zh	x-vnd.LocalSend	45121568
+1	zh	x-vnd.LocalSend	1778767245
+%d device on network	LocalSend		%d device on network
 Received: 	LocalSend		已接收: 
+Send	LocalSend		Send
+About	LocalSend		About
 Device name:	LocalSend		设备名称:
 Send text…	LocalSend		发送文本…
 Priority contacts only	LocalSend		仅优先联系人
 PIN (empty = none):	LocalSend		PIN（空 = 无）:
-Stop sharing	LocalSend		停止分享
 Save to file	LocalSend		保存到文件
+Stop sharing	LocalSend		停止分享
 Cancel	LocalSend		取消
 My board	LocalSend		我的公告板
 Download all	LocalSend		全部下载
@@ -15,11 +18,13 @@ Sent to %d of %d devices	LocalSend		已发送到 %d/%d 台设备
 Message received	LocalSend		收到消息
 No priority contacts yet	LocalSend		暂无优先联系人
 Reject	LocalSend		拒绝
+\"%peer%\" requires a PIN:	LocalSend		\"%peer%\" requires a PIN:
 Integration	LocalSend		集成
 Save folder:	LocalSend		保存文件夹:
 Settings	LocalSend		设置
 Manage priority contacts…	LocalSend		管理优先联系人…
 Copy	LocalSend		复制
+File…	LocalSend		File…
 Download	LocalSend		下载
 Clear history	LocalSend		清除历史
 Port change will take effect after restart.	LocalSend		端口更改将在重新启动后生效。
@@ -37,12 +42,16 @@ Clear board	LocalSend		清空公告板
 Link active on port %d. Open in browser:	LocalSend		端口%d上的链接已激活。在浏览器中打开:
 Cannot create TLS certificate.	LocalSend		无法创建TLS证书。
 Add to favorites	LocalSend		添加到收藏
+Drop the files on a device, or select one first.	LocalSend		Drop the files on a device, or select one first.
+Add or remove favorite	LocalSend		Add or remove favorite
 Open in editor	LocalSend		在编辑器中打开
 Favorites only	LocalSend		仅收藏
 Type the message to send:	LocalSend		输入要发送的消息:
 Accept	LocalSend		接受
+Text…	LocalSend		Text…
 Browse…	LocalSend		浏览…
 Send failed	LocalSend		发送失败
+%d devices on network	LocalSend		%d devices on network
 Board is empty	LocalSend		公告板为空
 Settings…	LocalSend		设置…
 From: 	LocalSend		来自: 
@@ -50,7 +59,6 @@ Open	LocalSend		打开
 Ready to receive	LocalSend		准备接收
 Unknown	LocalSend		未知
 No favorites online right now.	LocalSend		没有在线的收藏设备。
-Devices on network	LocalSend		网络上的设备
 Cannot open port (already in use?)	LocalSend		无法打开端口（已被占用？）
 Network	LocalSend		网络
 File received	LocalSend		文件已接收
@@ -61,23 +69,26 @@ History	LocalSend		历史
 Add to Deskbar	LocalSend		添加到 Deskbar
 Incoming transfer	LocalSend		传入文件
 Quick save (accept all)	LocalSend		快速保存（全部接受）
+PIN required	LocalSend		PIN required
 Enable HTTPS	LocalSend		启用HTTPS
 Save	LocalSend		保存
 Add files…	LocalSend		添加文件…
 Board	LocalSend		公告板
 Refresh	LocalSend		刷新
+Drag files here, or straight onto a device	LocalSend		Drag files here, or straight onto a device
 Board visible to:	LocalSend		公告板可见范围:
 Send file…	LocalSend		发送文件…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		自动接收收藏
 Auto-download from favorites' boards	LocalSend		自动下载收藏的公告板
+Tools	LocalSend		Tools
 Remove from board	LocalSend		从公告板移除
 Send to circle…	LocalSend		发送到圈子…
 Sent to %d devices	LocalSend		已发送到 %d 台设备
 Download and open	LocalSend		下载并打开
 Select a device from the list.	LocalSend		请从列表中选择一个设备。
 Share via link…	LocalSend		通过链接分享…
-Add to priority contacts	LocalSend		添加到优先联系人
 Priority contacts	LocalSend		优先联系人
+Add to priority contacts	LocalSend		添加到优先联系人
 Everyone	LocalSend		所有人
  files sent successfully	LocalSend		 个文件发送成功

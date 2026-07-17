@@ -1,11 +1,14 @@
-1	it	x-vnd.LocalSend	45121568
+1	it	x-vnd.LocalSend	1778767245
+%d device on network	LocalSend		%d dispositivo in rete
 Received: 	LocalSend		Ricevuto: 
+Send	LocalSend		Invia
+About	LocalSend		Informazioni
 Device name:	LocalSend		Nome dispositivo:
 Send text…	LocalSend		Invia testo…
 Priority contacts only	LocalSend		Solo contatti prioritari
 PIN (empty = none):	LocalSend		PIN (vuoto = nessuno):
-Stop sharing	LocalSend		Ferma condivisione
 Save to file	LocalSend		Salva su file
+Stop sharing	LocalSend		Ferma condivisione
 Cancel	LocalSend		Annulla
 My board	LocalSend		La mia bacheca
 Download all	LocalSend		Scarica tutto
@@ -15,11 +18,13 @@ Sent to %d of %d devices	LocalSend		Inviato a %d su %d dispositivi
 Message received	LocalSend		Messaggio ricevuto
 No priority contacts yet	LocalSend		Nessun contatto prioritario
 Reject	LocalSend		Rifiuta
+\"%peer%\" requires a PIN:	LocalSend		\"%peer%\" richiede un PIN:
 Integration	LocalSend		Integrazione
 Save folder:	LocalSend		Cartella di salvataggio:
 Settings	LocalSend		Impostazioni
 Manage priority contacts…	LocalSend		Gestisci contatti prioritari…
 Copy	LocalSend		Copia
+File…	LocalSend		File…
 Download	LocalSend		Scarica
 Clear history	LocalSend		Cancella cronologia
 Port change will take effect after restart.	LocalSend		La porta cambiata sara' attiva al prossimo avvio.
@@ -37,12 +42,16 @@ Clear board	LocalSend		Svuota bacheca
 Link active on port %d. Open in browser:	LocalSend		Link attivo su porta %d. Apri nel browser:
 Cannot create TLS certificate.	LocalSend		Impossibile creare il certificato TLS.
 Add to favorites	LocalSend		Aggiungi ai preferiti
+Drop the files on a device, or select one first.	LocalSend		Lascia i file su un dispositivo, o prima selezionane uno.
+Add or remove favorite	LocalSend		Aggiungi o rimuovi preferito
 Open in editor	LocalSend		Apri nell'editor
 Favorites only	LocalSend		Solo preferiti
 Type the message to send:	LocalSend		Scrivi il messaggio da inviare:
 Accept	LocalSend		Accetta
+Text…	LocalSend		Testo…
 Browse…	LocalSend		Sfoglia…
 Send failed	LocalSend		Invio fallito
+%d devices on network	LocalSend		%d dispositivi in rete
 Board is empty	LocalSend		Bacheca vuota
 Settings…	LocalSend		Impostazioni…
 From: 	LocalSend		Da: 
@@ -50,7 +59,6 @@ Open	LocalSend		Apri
 Ready to receive	LocalSend		Pronto a ricevere
 Unknown	LocalSend		Sconosciuto
 No favorites online right now.	LocalSend		Nessun preferito online in questo momento.
-Devices on network	LocalSend		Dispositivi in rete
 Cannot open port (already in use?)	LocalSend		Impossibile aprire la porta (occupata?)
 Network	LocalSend		Rete
 File received	LocalSend		File ricevuto
@@ -61,23 +69,26 @@ History	LocalSend		Cronologia
 Add to Deskbar	LocalSend		Aggiungi al Deskbar
 Incoming transfer	LocalSend		Trasferimento in arrivo
 Quick save (accept all)	LocalSend		Salvataggio rapido (accetta tutto)
+PIN required	LocalSend		PIN richiesto
 Enable HTTPS	LocalSend		Abilita HTTPS
 Save	LocalSend		Salva
 Add files…	LocalSend		Aggiungi file…
 Board	LocalSend		Bacheca
 Refresh	LocalSend		Aggiorna
+Drag files here, or straight onto a device	LocalSend		Trascina i file qui, o direttamente su un dispositivo
 Board visible to:	LocalSend		Bacheca visibile a:
 Send file…	LocalSend		Invia file…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		Accetta automaticamente dai preferiti
 Auto-download from favorites' boards	LocalSend		Scarica automaticamente dalla bacheca dei preferiti
+Tools	LocalSend		Strumenti
 Remove from board	LocalSend		Rimuovi dalla bacheca
 Send to circle…	LocalSend		Invia alla cerchia…
 Sent to %d devices	LocalSend		Inviato a %d dispositivi
 Download and open	LocalSend		Scarica e apri
 Select a device from the list.	LocalSend		Seleziona un dispositivo dalla lista.
 Share via link…	LocalSend		Condividi via link…
-Add to priority contacts	LocalSend		Aggiungi ai contatti prioritari
 Priority contacts	LocalSend		Contatti prioritari
+Add to priority contacts	LocalSend		Aggiungi ai contatti prioritari
 Everyone	LocalSend		Tutti
  files sent successfully	LocalSend		 file inviati con successo

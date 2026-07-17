@@ -1,11 +1,14 @@
-1	ja	x-vnd.LocalSend	45121568
+1	ja	x-vnd.LocalSend	1778767245
+%d device on network	LocalSend		%d device on network
 Received: 	LocalSend		受信: 
+Send	LocalSend		Send
+About	LocalSend		About
 Device name:	LocalSend		デバイス名:
 Send text…	LocalSend		テキストを送信…
 Priority contacts only	LocalSend		優先連絡先のみ
 PIN (empty = none):	LocalSend		PIN（空欄 = なし）:
-Stop sharing	LocalSend		共有を停止
 Save to file	LocalSend		ファイルに保存
+Stop sharing	LocalSend		共有を停止
 Cancel	LocalSend		キャンセル
 My board	LocalSend		自分の掲示板
 Download all	LocalSend		すべてダウンロード
@@ -15,11 +18,13 @@ Sent to %d of %d devices	LocalSend		%d/%d台のデバイスに送信しました
 Message received	LocalSend		メッセージを受信
 No priority contacts yet	LocalSend		優先連絡先はありません
 Reject	LocalSend		拒否
+\"%peer%\" requires a PIN:	LocalSend		\"%peer%\" requires a PIN:
 Integration	LocalSend		統合
 Save folder:	LocalSend		保存先:
 Settings	LocalSend		設定
 Manage priority contacts…	LocalSend		優先連絡先を管理…
 Copy	LocalSend		コピー
+File…	LocalSend		File…
 Download	LocalSend		ダウンロード
 Clear history	LocalSend		履歴を消去
 Port change will take effect after restart.	LocalSend		ポートの変更は再起動後に有効になります。
@@ -37,12 +42,16 @@ Clear board	LocalSend		掲示板をクリア
 Link active on port %d. Open in browser:	LocalSend		ポート%dでリンク有効。ブラウザで開く:
 Cannot create TLS certificate.	LocalSend		TLS証明書を作成できません。
 Add to favorites	LocalSend		お気に入りに追加
+Drop the files on a device, or select one first.	LocalSend		Drop the files on a device, or select one first.
+Add or remove favorite	LocalSend		Add or remove favorite
 Open in editor	LocalSend		エディターで開く
 Favorites only	LocalSend		お気に入りのみ
 Type the message to send:	LocalSend		送信するメッセージを入力:
 Accept	LocalSend		受け入れる
+Text…	LocalSend		Text…
 Browse…	LocalSend		参照…
 Send failed	LocalSend		送信失敗
+%d devices on network	LocalSend		%d devices on network
 Board is empty	LocalSend		掲示板は空です
 Settings…	LocalSend		設定…
 From: 	LocalSend		送信元: 
@@ -50,7 +59,6 @@ Open	LocalSend		開く
 Ready to receive	LocalSend		受信準備完了
 Unknown	LocalSend		不明
 No favorites online right now.	LocalSend		オンラインのお気に入りがありません。
-Devices on network	LocalSend		ネットワーク上のデバイス
 Cannot open port (already in use?)	LocalSend		ポートを開けません（使用中？）
 Network	LocalSend		ネットワーク
 File received	LocalSend		ファイルを受信しました
@@ -61,23 +69,26 @@ History	LocalSend		履歴
 Add to Deskbar	LocalSend		Deskbarに追加
 Incoming transfer	LocalSend		受信ファイル
 Quick save (accept all)	LocalSend		クイック保存（すべて受信）
+PIN required	LocalSend		PIN required
 Enable HTTPS	LocalSend		HTTPSを有効にする
 Save	LocalSend		保存
 Add files…	LocalSend		ファイルを追加…
 Board	LocalSend		掲示板
 Refresh	LocalSend		更新
+Drag files here, or straight onto a device	LocalSend		Drag files here, or straight onto a device
 Board visible to:	LocalSend		掲示板の公開先:
 Send file…	LocalSend		ファイルを送信…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		お気に入りから自動受信
 Auto-download from favorites' boards	LocalSend		お気に入りの掲示板から自動ダウンロード
+Tools	LocalSend		Tools
 Remove from board	LocalSend		掲示板から削除
 Send to circle…	LocalSend		サークルに送信…
 Sent to %d devices	LocalSend		%d台のデバイスに送信しました
 Download and open	LocalSend		ダウンロードして開く
 Select a device from the list.	LocalSend		リストからデバイスを選択してください。
 Share via link…	LocalSend		リンクで共有…
-Add to priority contacts	LocalSend		優先連絡先に追加
 Priority contacts	LocalSend		優先連絡先
+Add to priority contacts	LocalSend		優先連絡先に追加
 Everyone	LocalSend		全員
  files sent successfully	LocalSend		 件送信完了
