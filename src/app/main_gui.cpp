@@ -31,6 +31,8 @@
 #include <ListItem.h>
 #include <LocaleRoster.h>
 #include <ListView.h>
+#include <Menu.h>
+#include <MenuBar.h>
 #include <MenuItem.h>
 #include <MenuField.h>
 #include <Notification.h>
@@ -1021,6 +1023,14 @@ public:
 		statusFont.GetHeight(&sfh);
 		DrawString(fStatus.String(),
 			BPoint(textX, y + nfh.ascent + sfh.ascent + 4));
+
+		// Pallino di stato a destra (verde=pronto, rosso=errore, grigio=neutro):
+		// stesso codice colore del testo di stato.
+		SetHighColor(statusColor);
+		float dotR = 5;
+		float dotCx = bounds.right - 18;
+		float dotCy = bounds.top + bounds.Height() / 2;
+		FillEllipse(BPoint(dotCx, dotCy), dotR, dotR);
 
 		// Linea di separazione in basso.
 		SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR), 1.15));
@@ -2656,6 +2666,12 @@ private:
 	BListView* fDeviceList;
 	BFilePanel* fFilePanel;
 
+	// Barra di stato in basso: conteggio dispositivi + IP locale.
+	BStringView* fStatusLeft = nullptr;
+	BStringView* fStatusRight = nullptr;
+	void _UpdateDeviceCount();
+	BString _LocalIpv4();
+
 	// Server in background.
 	SocketHttpServer fServer;
 	ReceiveSession fSession;
@@ -2743,67 +2759,89 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	BScrollView* scroll = new BScrollView("scroll", fDeviceList,
 		0, false, true, B_NO_BORDER);
 
-	// Etichetta sezione dispositivi + pulsante Refresh.
-	BStringView* devLabel = new BStringView("devlabel",
-		B_TRANSLATE("Devices on network"));
-	BFont labelFont(be_bold_font);
-	labelFont.SetSize(be_plain_font->Size());
-	devLabel->SetFont(&labelFont);
-	BButton* refreshBtn = new BButton("refresh", B_TRANSLATE("Refresh"),
-		new BMessage(kMsgRefreshDevices));
-	refreshBtn->SetExplicitMinSize(BSize(B_SIZE_UNSET, B_SIZE_UNSET));
-
-	// Barra di progresso.
+	// Barra di progresso (nascosta finche' non c'e' un trasferimento).
 	fProgressBar = new BStatusBar("progress");
 	fProgressBar->SetBarHeight(10);
 	fProgressBar->SetMaxValue(1.0);
 	fProgressBar->Hide();
 
-	// Pulsanti.
-	BButton* sendBtn = new BButton(B_TRANSLATE("Send file…"),
-		new BMessage(kMsgSendFile));
-	BButton* textBtn = new BButton(B_TRANSLATE("Send text…"),
-		new BMessage(kMsgSendText));
-	BButton* circleBtn = new BButton(B_TRANSLATE("Send to circle…"),
-		new BMessage(kMsgSendToCircle));
-	BButton* favBtn = new BButton("\xe2\x98\x85",
-		new BMessage(kMsgToggleFavorite));
-	BButton* settingsBtn = new BButton(B_TRANSLATE("Settings…"),
-		new BMessage(kMsgShowSettings));
-	BButton* historyBtn = new BButton(B_TRANSLATE("History"),
-		new BMessage(kMsgShowHistory));
+	// Barra dei menu: le azioni globali vivono qui, non piu' come file di
+	// pulsanti sotto la lista ("la lista e' l'interfaccia").
+	BMenuBar* menuBar = new BMenuBar("menubar");
 
-	// Layout.
+	BMenu* sendMenu = new BMenu(B_TRANSLATE("Send"));
+	sendMenu->AddItem(new BMenuItem(B_TRANSLATE("Send file…"),
+		new BMessage(kMsgSendFile)));
+	sendMenu->AddItem(new BMenuItem(B_TRANSLATE("Send text…"),
+		new BMessage(kMsgSendText)));
+	sendMenu->AddItem(new BMenuItem(B_TRANSLATE("Send to circle…"),
+		new BMessage(kMsgSendToCircle)));
+	sendMenu->AddSeparatorItem();
+	sendMenu->AddItem(new BMenuItem(B_TRANSLATE("Share via link…"),
+		new BMessage(kMsgShareLink)));
+	menuBar->AddItem(sendMenu);
+
+	BMenu* netMenu = new BMenu(B_TRANSLATE("Network"));
+	netMenu->AddItem(new BMenuItem(B_TRANSLATE("Refresh"),
+		new BMessage(kMsgRefreshDevices)));
+	netMenu->AddSeparatorItem();
+	netMenu->AddItem(new BMenuItem(B_TRANSLATE("Add or remove favorite"),
+		new BMessage(kMsgToggleFavorite)));
+	menuBar->AddItem(netMenu);
+
+	BMenu* toolsMenu = new BMenu(B_TRANSLATE("Tools"));
+	toolsMenu->AddItem(new BMenuItem(B_TRANSLATE("History"),
+		new BMessage(kMsgShowHistory)));
+	toolsMenu->AddItem(new BMenuItem(B_TRANSLATE("Board"),
+		new BMessage(kMsgShowBoard)));
+	menuBar->AddItem(toolsMenu);
+
+	BMenu* setMenu = new BMenu(B_TRANSLATE("Settings"));
+	setMenu->AddItem(new BMenuItem(B_TRANSLATE("Settings…"),
+		new BMessage(kMsgShowSettings)));
+	setMenu->AddSeparatorItem();
+	setMenu->AddItem(new BMenuItem(B_TRANSLATE("About"),
+		new BMessage(kMsgAbout)));
+	menuBar->AddItem(setMenu);
+
+	sendMenu->SetTargetForItems(this);
+	netMenu->SetTargetForItems(this);
+	toolsMenu->SetTargetForItems(this);
+	setMenu->SetTargetForItems(this);
+
+	// Barra di stato in basso: dispositivi in rete (sinistra) + IP locale
+	// (destra), in carattere piccolo e attenuato.
+	fStatusLeft = new BStringView("stleft", "");
+	fStatusRight = new BStringView("stright", _LocalIpv4().String());
+	BFont smallFont(be_plain_font);
+	smallFont.SetSize(be_plain_font->Size() - 1);
+	rgb_color muted = tint_color(ui_color(B_PANEL_TEXT_COLOR), 0.6);
+	fStatusLeft->SetFont(&smallFont);
+	fStatusRight->SetFont(&smallFont);
+	fStatusLeft->SetHighColor(muted);
+	fStatusRight->SetHighColor(muted);
+	fStatusRight->SetAlignment(B_ALIGN_RIGHT);
+
+	// Layout: menu bar -> header -> lista/progresso -> barra di stato.
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
+		.Add(menuBar)
 		.Add(fHeader)
 		.AddGroup(B_VERTICAL, B_USE_HALF_ITEM_SPACING)
 			.SetInsets(B_USE_WINDOW_INSETS)
-			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-				.Add(devLabel)
-				.AddGlue()
-				.Add(refreshBtn, 0.0)
-			.End()
 			.Add(scroll, 1.0)
 			.Add(fProgressBar)
-			.AddStrut(B_USE_HALF_ITEM_SPACING)
-			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-				.Add(sendBtn, 1.0)
-				.Add(textBtn, 1.0)
-				.Add(circleBtn, 1.0)
-				.Add(favBtn, 0.0)
-			.End()
-			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-				.Add(historyBtn, 1.0)
-				.Add(new BButton(B_TRANSLATE("Share via link…"),
-					new BMessage(kMsgShareLink)), 1.0)
-				.Add(new BButton(B_TRANSLATE("Board"),
-					new BMessage(kMsgShowBoard)), 1.0)
-				.Add(settingsBtn, 1.0)
-				.Add(new BButton("?",
-					new BMessage(kMsgAbout)), 0.0)
-			.End()
+		.End()
+		.Add(new BSeparatorView(B_HORIZONTAL))
+		.AddGroup(B_HORIZONTAL, B_USE_DEFAULT_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS, B_USE_HALF_ITEM_SPACING,
+				B_USE_WINDOW_INSETS, B_USE_HALF_ITEM_SPACING)
+			.Add(fStatusLeft)
+			.AddGlue()
+			.Add(fStatusRight)
 		.End()
 	.End();
+
+	_UpdateDeviceCount();
 
 	SetSizeLimits(380, B_SIZE_UNLIMITED, 300, B_SIZE_UNLIMITED);
 	CenterOnScreen();
@@ -2831,6 +2869,50 @@ MainWindow::SetStatus(const char* text)
 		fHeader->SetStatus(text, false, false);
 		UnlockLooper();
 	}
+}
+
+
+// IPv4 della LAN via "trucco" del socket UDP connesso al gruppo multicast:
+// il kernel sceglie l'IP sorgente giusto senza getifaddrs (assente su Haiku).
+BString
+MainWindow::_LocalIpv4()
+{
+	BString host;
+	int probe = socket(AF_INET, SOCK_DGRAM, 0);
+	if (probe >= 0) {
+		sockaddr_in dest{};
+		dest.sin_family = AF_INET;
+		dest.sin_addr.s_addr = inet_addr(kMulticastGroup);
+		dest.sin_port = htons(kDefaultPort);
+		if (connect(probe, (sockaddr*)&dest, sizeof(dest)) == 0) {
+			sockaddr_in local{};
+			socklen_t len = sizeof(local);
+			if (getsockname(probe, (sockaddr*)&local, &len) == 0
+					&& local.sin_addr.s_addr != 0) {
+				char buf[INET_ADDRSTRLEN] = {0};
+				if (inet_ntop(AF_INET, &local.sin_addr, buf,
+						sizeof(buf)) != nullptr)
+					host = buf;
+			}
+		}
+		close(probe);
+	}
+	return host;
+}
+
+
+// Aggiorna il conteggio "N dispositivi in rete" nella barra di stato.
+void
+MainWindow::_UpdateDeviceCount()
+{
+	if (fStatusLeft == nullptr)
+		return;
+	int32 n = fDeviceList->CountItems();
+	char buf[64];
+	snprintf(buf, sizeof(buf),
+		n == 1 ? B_TRANSLATE("%d device on network")
+			: B_TRANSLATE("%d devices on network"), (int)n);
+	fStatusLeft->SetText(buf);
 }
 
 
@@ -3201,6 +3283,7 @@ MainWindow::PruneStaleDevices()
 		}
 	}
 	_PostPeerStats();
+	_UpdateDeviceCount();
 }
 
 
@@ -3395,6 +3478,7 @@ MainWindow::MessageReceived(BMessage* msg)
 					alias, type ? type : "", model ? model : "",
 					ip ? ip : "", fp ? fp : "", fav, prio, haiku));
 				_PostPeerStats();
+				_UpdateDeviceCount();
 			}
 			break;
 		}
