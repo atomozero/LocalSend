@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "protocol/Constants.h"
 #include "protocol/Json.h"
@@ -163,20 +164,26 @@ MulticastAnnouncer::Run()
 		selfFingerprint = fInfo.fingerprint;
 	}
 
-	// Annuncio iniziale immediato.
+	// Annuncio iniziale immediato + timer per i successivi.
 	{
 		std::string annMsg = _AnnounceJson(true);
 		sendto(fFd, annMsg.data(), annMsg.size(), 0,
 			(sockaddr*)&groupAddr, sizeof(groupAddr));
 	}
+	time_t lastAnnounce = time(nullptr);
 
 	while (fRunning) {
+		// Timeout breve: l'annuncio periodico NON dipende dall'assenza di
+		// traffico ma da un timer indipendente (sotto). Cosi' su una LAN
+		// affollata continuiamo comunque ad annunciarci, e i peer che ci
+		// registrano IN RISPOSTA (es. lo smartphone, che annuncia di rado)
+		// restano vivi invece di essere potati per TTL.
 		fd_set readSet;
 		FD_ZERO(&readSet);
 		FD_SET(fFd, &readSet);
 
 		timeval tv{};
-		tv.tv_sec = kAnnounceInterval;
+		tv.tv_sec = 1;
 		tv.tv_usec = 0;
 
 		int ready = select(fFd + 1, &readSet, nullptr, nullptr, &tv);
@@ -184,20 +191,22 @@ MulticastAnnouncer::Run()
 		if (!fRunning)
 			break;
 
-		if (ready > 0 && FD_ISSET(fFd, &readSet)) {
-			// Messaggio in arrivo: un altro dispositivo si annuncia.
+		// Drena TUTTI i pacchetti in coda, non solo il primo: piu' peer
+		// possono annunciarsi/rispondere quasi insieme (es. le repliche al
+		// nostro annuncio). Con MSG_DONTWAIT il ciclo esce a coda vuota.
+		while (ready > 0 && FD_ISSET(fFd, &readSet)) {
 			char buf[2048];
 			sockaddr_in from{};
 			socklen_t fromLen = sizeof(from);
-			ssize_t n = recvfrom(fFd, buf, sizeof(buf) - 1, 0,
+			ssize_t n = recvfrom(fFd, buf, sizeof(buf) - 1, MSG_DONTWAIT,
 				(sockaddr*)&from, &fromLen);
 			if (n <= 0)
-				continue;
+				break;
 			buf[n] = 0;
 
-			// Ignora i propri annunci.
 			try {
 				JsonValue msg = JsonValue::Parse(std::string(buf, n));
+				// Ignora i propri annunci.
 				if (msg.Has("fingerprint")
 					&& msg.At("fingerprint").AsString()
 						== selfFingerprint) {
@@ -246,12 +255,14 @@ MulticastAnnouncer::Run()
 			}
 		}
 
-		if (ready == 0) {
-			// Timeout: invia annuncio periodico (ricomposto: la bacheca
-			// puo' essere cambiata via SetBoard).
+		// Annuncio periodico su timer indipendente dal traffico: garantisce
+		// che ci annunciamo ogni kAnnounceInterval anche a LAN affollata.
+		time_t now = time(nullptr);
+		if (now - lastAnnounce >= kAnnounceInterval) {
 			std::string annMsg = _AnnounceJson(true);
 			sendto(fFd, annMsg.data(), annMsg.size(), 0,
 				(sockaddr*)&groupAddr, sizeof(groupAddr));
+			lastAnnounce = now;
 		}
 	}
 }
