@@ -124,6 +124,9 @@ enum {
 	// Tick periodico del BMessageRunner: rimuove i peer non sentiti
 	// da troppo tempo (TTL "last-seen").
 	kMsgPruneDevices	= 'PRUN',
+	// Sonda periodica dei peer noti via HTTP GET /info: li tiene vivi anche
+	// quando il multicast in ingresso non arriva (reti che non lo inoltrano).
+	kMsgProbePeers		= 'PROB',
 	// Pulsante Refresh nella UI: forza un annuncio extra cosi' i peer
 	// rispondono in unicast e la lista si rinfresca subito.
 	kMsgRefreshDevices	= 'RFSH',
@@ -661,6 +664,9 @@ struct DiscoveredDevice {
 // Tre tick di annuncio (3*5s) + un piccolo cuscinetto coprono jitter / pacchetti
 // persi senza far sparire un peer ancora vivo.
 static const int kDeviceTimeoutSeconds = 20;
+// Ogni quanto sondare via HTTP i peer noti (< TTL, cosi' un peer vivo viene
+// rinfrescato piu' volte prima di scadere).
+static const int kPeerProbeIntervalSeconds = 7;
 // Anti-flood del prepare-upload: al massimo N richieste per finestra di
 // M secondi, oltre le quali si risponde 429 Too Many Requests. Soglia larga:
 // un uso legittimo non arriva mai a tante prepare-upload cosi' ravvicinate.
@@ -2925,6 +2931,7 @@ private:
 
 	// Timer periodico: posta kMsgPruneDevices ogni kDevicePruneIntervalSeconds.
 	BMessageRunner* fPruneRunner = nullptr;
+	BMessageRunner* fProbeRunner = nullptr; // sonda HTTP periodica dei peer
 };
 
 
@@ -3057,12 +3064,19 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	BMessage prune(kMsgPruneDevices);
 	fPruneRunner = new BMessageRunner(BMessenger(this), &prune,
 		(bigtime_t)kDevicePruneIntervalSeconds * 1000000LL);
+
+	// Sonda periodica dei peer noti via HTTP (piu' frequente del TTL): li
+	// tiene vivi quando il multicast in ingresso non arriva.
+	BMessage probe(kMsgProbePeers);
+	fProbeRunner = new BMessageRunner(BMessenger(this), &probe,
+		(bigtime_t)kPeerProbeIntervalSeconds * 1000000LL);
 }
 
 
 MainWindow::~MainWindow()
 {
 	delete fPruneRunner;
+	delete fProbeRunner;
 	StopServer();
 	delete fFilePanel;
 }
@@ -3617,6 +3631,57 @@ MainWindow::MessageReceived(BMessage* msg)
 		case kMsgPruneDevices:
 			PruneStaleDevices();
 			break;
+
+		case kMsgProbePeers:
+		{
+			// Snapshot dei peer noti (host/porta) sotto lock.
+			struct Probe { std::string host; int port; };
+			std::vector<Probe> peers;
+			{
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				for (const auto& d : fDevices)
+					peers.push_back({d.host, d.port});
+			}
+			if (peers.empty())
+				break;
+			// Thread detached: GET /info a ciascun peer; se risponde,
+			// rinfrescalo via kMsgPeerHeard (il percorso di scoperta
+			// esistente, elaborato sul looper). Il BMessenger diventa
+			// invalido se la window muore -> SendMessage fallisce senza
+			// crash. Cosi' i peer restano vivi anche senza multicast in
+			// ingresso, finche' il loro server HTTP e' raggiungibile.
+			BMessenger msgr(this);
+			std::thread([msgr, peers]() {
+				for (const auto& p : peers) {
+					SocketHttpClient client;
+					client.EnableTls();
+					HttpResponse r = client.Get(p.host, p.port, kApiInfo);
+					if (!r.IsOk())
+						continue;
+					try {
+						DeviceInfo info = DeviceInfo::FromJson(
+							JsonValue::Parse(r.body));
+						if (info.fingerprint.empty())
+							continue;
+						BMessage m(kMsgPeerHeard);
+						m.AddString("alias", info.alias.c_str());
+						m.AddString("host", p.host.c_str());
+						m.AddInt32("port", p.port);
+						m.AddString("deviceType", info.deviceType.c_str());
+						m.AddString("deviceModel",
+							info.deviceModel.c_str());
+						m.AddString("fingerprint",
+							info.fingerprint.c_str());
+						m.AddBool("haiku", info.app == kAppId
+							|| info.deviceModel == "Haiku");
+						if (msgr.IsValid())
+							msgr.SendMessage(&m);
+					} catch (...) {
+					}
+				}
+			}).detach();
+			break;
+		}
 
 		case kMsgRefreshDevices:
 			// Inoltra all'app: l'announcer e' di sua proprieta'.

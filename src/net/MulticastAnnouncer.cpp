@@ -60,10 +60,34 @@ MulticastAnnouncer::Start()
 		return false;
 	}
 
-	// Entra nel gruppo multicast.
+	// IP dell'interfaccia LAN: un socket UDP "connesso" al gruppo multicast
+	// fa scegliere al kernel l'IP sorgente giusto, senza getifaddrs (assente
+	// su Haiku). Serve per agganciare il JOIN e l'invio all'interfaccia
+	// giusta: con INADDR_ANY, Haiku puo' agganciare l'interfaccia sbagliata
+	// e NON ricevere alcun annuncio (si scopre solo via HTTP /register).
+	in_addr_t ifAddr = htonl(INADDR_ANY);
+	{
+		int probe = socket(AF_INET, SOCK_DGRAM, 0);
+		if (probe >= 0) {
+			sockaddr_in dest{};
+			dest.sin_family = AF_INET;
+			dest.sin_addr.s_addr = inet_addr(kMulticastGroup);
+			dest.sin_port = htons(kDefaultPort);
+			if (connect(probe, (sockaddr*)&dest, sizeof(dest)) == 0) {
+				sockaddr_in local{};
+				socklen_t len = sizeof(local);
+				if (getsockname(probe, (sockaddr*)&local, &len) == 0
+						&& local.sin_addr.s_addr != 0)
+					ifAddr = local.sin_addr.s_addr;
+			}
+			close(probe);
+		}
+	}
+
+	// Entra nel gruppo multicast sull'interfaccia LAN.
 	ip_mreq mreq{};
 	mreq.imr_multiaddr.s_addr = inet_addr(kMulticastGroup);
-	mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+	mreq.imr_interface.s_addr = ifAddr;
 	if (setsockopt(fFd, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 			&mreq, sizeof(mreq)) < 0) {
 		perror("multicast: IP_ADD_MEMBERSHIP");
@@ -71,6 +95,11 @@ MulticastAnnouncer::Start()
 		fFd = -1;
 		return false;
 	}
+
+	// Invia gli annunci sull'interfaccia LAN (non su quella di default).
+	in_addr mif{};
+	mif.s_addr = ifAddr;
+	setsockopt(fFd, IPPROTO_IP, IP_MULTICAST_IF, &mif, sizeof(mif));
 
 	// TTL = 1: solo LAN locale.
 	unsigned char ttl = 1;

@@ -38,6 +38,7 @@ localsend_fingerprint
 localsend_settings
 localsend_history
 localsend_favorites
+localsend_priority
 localsend_board_seen
 
 # File ricevuti a runtime (cartella di default del ricevente)
