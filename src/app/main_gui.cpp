@@ -705,6 +705,24 @@ public:
 	const BString& FingerprintId() const { return fFingerprintId; }
 	bool IsFavorite() const { return fFavorite; }
 	bool IsPriority() const { return fPriority; }
+	// La riga mostra le azioni inline quando e' sotto il mouse (impostato
+	// dalla lista) o selezionata.
+	void SetShowActions(bool s) { fShowActions = s; }
+
+	// Rettangoli dei tre "pulsanti" inline (File… / Testo… / ★) dentro una
+	// riga, da destra: [File…] [Testo…] [★]. Condivisi tra disegno e
+	// hit-testing del click, cosi' restano allineati.
+	static void ActionRects(BRect frame, BRect& fileR, BRect& textR,
+		BRect& starR)
+	{
+		const float pad = 8, gap = 6, h = 22, starW = 24, btnW = 54;
+		float top = frame.top + (frame.Height() - h) / 2;
+		float bot = top + h;
+		float x = frame.right - pad;
+		starR.Set(x - starW, top, x, bot); x -= starW + gap;
+		textR.Set(x - btnW, top, x, bot); x -= btnW + gap;
+		fileR.Set(x - btnW, top, x, bot);
+	}
 
 	virtual void DrawItem(BView* owner, BRect frame, bool /*complete*/)
 	{
@@ -787,31 +805,37 @@ public:
 		owner->DrawString(detail.String(),
 			BPoint(textLeft, frame.bottom - 4 - fh.descent));
 
-		// Stella preferito.
-		if (fFavorite) {
-			owner->SetHighColor((rgb_color){240, 200, 40, 255});
-			BFont starFont(be_bold_font);
-			starFont.SetSize(14);
-			owner->SetFont(&starFont);
-			owner->DrawString("\xe2\x98\x85",
-				BPoint(frame.right - 20, frame.top + 18));
-		}
+		// Riga selezionata o sotto il mouse: le azioni (File… / Testo… / ★)
+		// vivono sulla riga stessa. Altrimenti mostra i marcatori passivi.
+		if (fShowActions || IsSelected()) {
+			_DrawActions(owner, frame);
+		} else {
+			// Stella preferito.
+			if (fFavorite) {
+				owner->SetHighColor((rgb_color){240, 200, 40, 255});
+				BFont starFont(be_bold_font);
+				starFont.SetSize(14);
+				owner->SetFont(&starFont);
+				owner->DrawString("\xe2\x98\x85",
+					BPoint(frame.right - 20, frame.top + 18));
+			}
 
-		// Pallino "contatto prioritario" (viola), a sinistra della stella
-		// cosi' i due marcatori non si sovrappongono.
-		if (fPriority) {
-			owner->SetHighColor((rgb_color){150, 90, 220, 255});
-			owner->FillEllipse(BRect(frame.right - 36, frame.top + 8,
-				frame.right - 28, frame.top + 16));
-		}
+			// Pallino "contatto prioritario" (viola), a sinistra della
+			// stella cosi' i due marcatori non si sovrappongono.
+			if (fPriority) {
+				owner->SetHighColor((rgb_color){150, 90, 220, 255});
+				owner->FillEllipse(BRect(frame.right - 36, frame.top + 8,
+					frame.right - 28, frame.top + 16));
+			}
 
-		// Badge a foglia se il peer gira la nostra app Haiku. In basso a
-		// destra, staccato dai marcatori preferito/prioritario in alto.
-		if (fHaiku) {
-			owner->PushState();
-			_DrawLeaf(owner, BRect(frame.right - 21, frame.bottom - 20,
-				frame.right - 9, frame.bottom - 6));
-			owner->PopState();
+			// Badge a foglia se il peer gira la nostra app Haiku.
+			if (fHaiku) {
+				owner->PushState();
+				_DrawLeaf(owner, BRect(frame.right - 21,
+					frame.bottom - 20, frame.right - 9,
+					frame.bottom - 6));
+				owner->PopState();
+			}
 		}
 	}
 
@@ -835,6 +859,51 @@ private:
 	bool fFavorite;
 	bool fPriority;
 	bool fHaiku;
+	bool fShowActions = false; // riga sotto il mouse (azioni inline visibili)
+
+	// Disegna i pulsanti inline sulla riga: File… / Testo… / ★ (toggle
+	// preferito). Sfondo chiaro cosi' restano leggibili anche sulla riga
+	// selezionata (blu).
+	void _DrawActions(BView* owner, BRect frame)
+	{
+		BRect fileR, textR, starR;
+		ActionRects(frame, fileR, textR, starR);
+		owner->PushState();
+		_DrawButton(owner, fileR, B_TRANSLATE("File…"));
+		_DrawButton(owner, textR, B_TRANSLATE("Text…"));
+
+		// Stella toggle: gialla se preferito, grigia altrimenti.
+		BFont sf(be_bold_font);
+		sf.SetSize(16);
+		owner->SetFont(&sf);
+		owner->SetHighColor(fFavorite ? (rgb_color){240, 200, 40, 255}
+			: (rgb_color){170, 170, 170, 255});
+		const char* star = "\xe2\x98\x85";
+		float sw = owner->StringWidth(star);
+		font_height sfh;
+		sf.GetHeight(&sfh);
+		owner->DrawString(star, BPoint(starR.left + (starR.Width() - sw) / 2,
+			starR.top + (starR.Height() + sfh.ascent - sfh.descent) / 2));
+		owner->PopState();
+	}
+
+	static void _DrawButton(BView* owner, BRect r, const char* label)
+	{
+		owner->SetHighColor((rgb_color){255, 255, 255, 255});
+		owner->FillRoundRect(r, 4, 4);
+		owner->SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR),
+			B_DARKEN_2_TINT));
+		owner->StrokeRoundRect(r, 4, 4);
+		owner->SetHighColor((rgb_color){50, 50, 50, 255});
+		BFont f(be_plain_font);
+		f.SetSize(be_plain_font->Size() - 1);
+		owner->SetFont(&f);
+		font_height fh;
+		f.GetHeight(&fh);
+		float lw = owner->StringWidth(label);
+		owner->DrawString(label, BPoint(r.left + (r.Width() - lw) / 2,
+			r.top + (r.Height() + fh.ascent - fh.descent) / 2));
+	}
 
 	// Disegna una piccola foglia (logo Haiku) dentro box: due curve di Bezier
 	// che formano il profilo, riempimento verde Haiku, nervatura centrale.
@@ -914,8 +983,56 @@ public:
 			}
 			return;
 		}
+
+		// Click primario su un "pulsante" inline della riga sotto il cursore
+		// (visibile perche' hover o selezionata): seleziona la riga e lancia
+		// l'azione, riusando gli stessi messaggi dei menu.
+		int32 index = IndexOf(where);
+		if (index >= 0
+				&& (index == fHoverIndex || index == CurrentSelection())) {
+			BRect fileR, textR, starR;
+			DeviceListItem::ActionRects(ItemFrame(index), fileR, textR,
+				starR);
+			uint32 what = 0;
+			if (fileR.Contains(where))
+				what = kMsgSendFile;
+			else if (textR.Contains(where))
+				what = kMsgSendText;
+			else if (starR.Contains(where))
+				what = kMsgToggleFavorite;
+			if (what != 0) {
+				Select(index);
+				if (Window() != nullptr)
+					Window()->PostMessage(what);
+				return;
+			}
+		}
 		BListView::MouseDown(where);
 	}
+
+	virtual void MouseMoved(BPoint where, uint32 transit,
+		const BMessage* drag)
+	{
+		BListView::MouseMoved(where, transit, drag);
+		int32 idx = (transit == B_EXITED_VIEW) ? -1 : IndexOf(where);
+		if (idx != fHoverIndex) {
+			_SetHover(fHoverIndex, false);
+			fHoverIndex = idx;
+			_SetHover(fHoverIndex, true);
+		}
+	}
+
+private:
+	void _SetHover(int32 idx, bool on)
+	{
+		DeviceListItem* it = dynamic_cast<DeviceListItem*>(ItemAt(idx));
+		if (it != nullptr) {
+			it->SetShowActions(on);
+			InvalidateItem(idx);
+		}
+	}
+
+	int32 fHoverIndex = -1;
 };
 
 
