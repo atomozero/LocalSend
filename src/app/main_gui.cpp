@@ -796,12 +796,12 @@ public:
 			detailColor = tint_color(ui_color(B_LIST_ITEM_TEXT_COLOR), 0.7);
 		owner->SetHighColor(detailColor);
 
-		// Riga di dettaglio: OS/piattaforma (se noto) - tipo - IP.
+		// Riga di dettaglio: OS/piattaforma (se noto) · tipo · IP.
 		BString detail;
 		if (fModel.Length() > 0)
-			detail << fModel << " - " << fType << " - " << fIp;
+			detail << fModel << " \xc2\xb7 " << fType << " \xc2\xb7 " << fIp;
 		else
-			detail << fType << " - " << fIp;
+			detail << fType << " \xc2\xb7 " << fIp;
 		detailFont.GetHeight(&fh);
 		owner->DrawString(detail.String(),
 			BPoint(textLeft, frame.bottom - 4 - fh.descent));
@@ -2729,6 +2729,63 @@ SendWithPinRetry(UploadSession& session, const std::string& host, int port,
 }
 
 
+// --- DropZoneView ----------------------------------------------------------
+// Banda tratteggiata sotto la lista: invita a trascinare i file. Un drop qui
+// invia al dispositivo selezionato (in alternativa i file si possono lasciare
+// direttamente su una riga, gestito dalla DeviceListView).
+class DropZoneView : public BView {
+public:
+	DropZoneView()
+		:
+		BView("dropzone", B_WILL_DRAW | B_FULL_UPDATE_ON_RESIZE)
+	{
+		SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+		SetExplicitMinSize(BSize(B_SIZE_UNSET, 46));
+		SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, 60));
+	}
+
+	virtual void Draw(BRect)
+	{
+		BRect b = Bounds();
+		b.InsetBy(3, 3);
+		// Bordo tratteggiato arrotondato.
+		static const pattern kDash = { { 0xf0, 0xf0, 0x0f, 0x0f,
+			0xf0, 0xf0, 0x0f, 0x0f } };
+		SetLowColor(ViewColor());
+		SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR),
+			B_DARKEN_2_TINT));
+		StrokeRoundRect(b, 8, 8, kDash);
+		// Testo d'invito centrato, attenuato.
+		SetHighColor(tint_color(ui_color(B_PANEL_TEXT_COLOR), 0.55));
+		BFont f(be_plain_font);
+		SetFont(&f);
+		const char* hint = B_TRANSLATE(
+			"Drag files here, or straight onto a device");
+		float w = StringWidth(hint);
+		font_height fh;
+		f.GetHeight(&fh);
+		DrawString(hint, BPoint(b.left + (b.Width() - w) / 2,
+			b.top + (b.Height() + fh.ascent - fh.descent) / 2));
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		// Drop sulla banda: invia al dispositivo selezionato riusando il
+		// percorso di kMsgFileSelected della finestra.
+		if (msg->WasDropped() && msg->HasRef("refs")) {
+			BMessage fwd(kMsgFileSelected);
+			entry_ref ref;
+			for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++)
+				fwd.AddRef("refs", &ref);
+			if (Window() != nullptr)
+				Window()->PostMessage(&fwd);
+			return;
+		}
+		BView::MessageReceived(msg);
+	}
+};
+
+
 // --- MainWindow ------------------------------------------------------------
 
 class MainWindow : public BWindow {
@@ -2963,7 +3020,10 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 	fStatusRight->SetHighColor(muted);
 	fStatusRight->SetAlignment(B_ALIGN_RIGHT);
 
-	// Layout: menu bar -> header -> lista/progresso -> barra di stato.
+	// Banda tratteggiata "trascina qui" sotto la lista.
+	DropZoneView* dropZone = new DropZoneView();
+
+	// Layout: menu bar -> header -> lista/progresso -> drop-zone -> stato.
 	BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
 		.Add(menuBar)
 		.Add(fHeader)
@@ -2971,6 +3031,11 @@ MainWindow::MainWindow(DeviceInfo* info, AppSettings* settings)
 			.SetInsets(B_USE_WINDOW_INSETS)
 			.Add(scroll, 1.0)
 			.Add(fProgressBar)
+		.End()
+		.AddGroup(B_HORIZONTAL, 0)
+			.SetInsets(B_USE_WINDOW_INSETS, 0, B_USE_WINDOW_INSETS,
+				B_USE_HALF_ITEM_SPACING)
+			.Add(dropZone)
 		.End()
 		.Add(new BSeparatorView(B_HORIZONTAL))
 		.AddGroup(B_HORIZONTAL, B_USE_DEFAULT_SPACING)
