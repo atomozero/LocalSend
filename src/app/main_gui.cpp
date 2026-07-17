@@ -95,6 +95,7 @@ enum {
 	kMsgSendDone		= 'SDNE',
 	kMsgProgress		= 'PROG',
 	kMsgDeviceInvoked	= 'DINV',
+	kMsgDropOnDevice	= 'DROP',	// lista -> window: file lasciati su una riga
 	kMsgShowSettings	= 'SETT',
 	kMsgSettingsSave	= 'SSAV',
 	kMsgBrowseDir		= 'BRWD',
@@ -1008,6 +1009,29 @@ public:
 			}
 		}
 		BListView::MouseDown(where);
+	}
+
+	virtual void MessageReceived(BMessage* msg)
+	{
+		// File trascinati dal Tracker su una riga: risolvi il dispositivo dal
+		// punto di rilascio (o dalla selezione) e inoltra alla finestra un
+		// messaggio pulito con refs + indice, che poi invia i file.
+		if (msg->WasDropped() && msg->HasRef("refs")) {
+			int32 idx = IndexOf(ConvertFromScreen(msg->DropPoint()));
+			if (idx < 0)
+				idx = CurrentSelection();
+			if (idx >= 0 && Window() != nullptr) {
+				Select(idx);
+				BMessage fwd(kMsgDropOnDevice);
+				fwd.AddInt32("deviceIndex", idx);
+				entry_ref ref;
+				for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++)
+					fwd.AddRef("refs", &ref);
+				Window()->PostMessage(&fwd);
+				return;
+			}
+		}
+		BListView::MessageReceived(msg);
 	}
 
 	virtual void MouseMoved(BPoint where, uint32 transit,
@@ -3465,15 +3489,27 @@ MainWindow::MessageReceived(BMessage* msg)
 			}
 			if (!paths.empty()) {
 				std::lock_guard<std::mutex> lock(fDevicesMtx);
-				int32 sel = fDeviceList->CurrentSelection();
-				if (sel < 0 || sel >= (int32)fDevices.size()) {
+				// Bersaglio: la riga SOTTO il punto di rilascio se il drop e'
+				// su un dispositivo, altrimenti quello selezionato.
+				int32 target = fDeviceList->CurrentSelection();
+				BPoint drop;
+				if (msg->FindPoint("_drop_point_", &drop) == B_OK) {
+					int32 idx = fDeviceList->IndexOf(
+						fDeviceList->ConvertFromScreen(drop));
+					if (idx >= 0) {
+						target = idx;
+						fDeviceList->Select(idx); // feedback visivo
+					}
+				}
+				if (target < 0 || target >= (int32)fDevices.size()) {
 					BAlert* alert = new BAlert("LocalSend",
-						B_TRANSLATE("Select a device from the list."), B_TRANSLATE("OK"),
+						B_TRANSLATE("Drop the files on a device, or select "
+							"one first."), B_TRANSLATE("OK"),
 						NULL, NULL, B_WIDTH_AS_USUAL,
 						B_INFO_ALERT);
 					alert->Go();
 				} else {
-					auto& dev = fDevices[sel];
+					auto& dev = fDevices[target];
 					SendFiles(dev.host, dev.port, paths);
 				}
 			}
@@ -3536,6 +3572,29 @@ MainWindow::MessageReceived(BMessage* msg)
 				int32 sel = fDeviceList->CurrentSelection();
 				if (sel >= 0 && sel < (int32)fDevices.size()) {
 					auto& dev = fDevices[sel];
+					SendFiles(dev.host, dev.port, paths);
+				}
+			}
+			break;
+		}
+
+		case kMsgDropOnDevice:
+		{
+			// File lasciati su una riga specifica (dalla DeviceListView):
+			// invia al dispositivo di quell'indice.
+			int32 idx = -1;
+			msg->FindInt32("deviceIndex", &idx);
+			entry_ref ref;
+			std::vector<std::string> paths;
+			for (int i = 0; msg->FindRef("refs", i, &ref) == B_OK; i++) {
+				BPath path(&ref);
+				if (path.InitCheck() == B_OK)
+					paths.push_back(path.Path());
+			}
+			if (!paths.empty()) {
+				std::lock_guard<std::mutex> lock(fDevicesMtx);
+				if (idx >= 0 && idx < (int32)fDevices.size()) {
+					auto& dev = fDevices[idx];
 					SendFiles(dev.host, dev.port, paths);
 				}
 			}
