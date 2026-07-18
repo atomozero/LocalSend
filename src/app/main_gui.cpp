@@ -27,6 +27,7 @@
 #include <FilePanel.h>
 #include <Font.h>
 #include <GroupLayout.h>
+#include <GroupView.h>
 #include <LayoutBuilder.h>
 #include <ListItem.h>
 #include <LocaleRoster.h>
@@ -45,6 +46,7 @@
 #include <Shape.h>
 #include <StatusBar.h>
 #include <StringItem.h>
+#include <TabView.h>
 #include <StringView.h>
 #include <TextView.h>
 #include <View.h>
@@ -1702,7 +1704,7 @@ class SettingsWindow : public BWindow {
 public:
 	SettingsWindow(AppSettings* settings, BWindow* target)
 		:
-		BWindow(BRect(150, 150, 560, 530), B_TRANSLATE("Settings"),
+		BWindow(BRect(120, 150, 620, 470), B_TRANSLATE("Settings"),
 			B_TITLED_WINDOW,
 			B_ASYNCHRONOUS_CONTROLS | B_AUTO_UPDATE_SIZE_LIMITS
 				| B_CLOSE_ON_ESCAPE),
@@ -1753,10 +1755,6 @@ public:
 			B_TRANSLATE("Manage priority contacts…"),
 			new BMessage(kMsgManagePriority));
 
-		fHttpsBox = new BCheckBox(B_TRANSLATE("Enable HTTPS"), NULL);
-		fHttpsBox->SetValue(B_CONTROL_ON);
-		fHttpsBox->SetEnabled(false);
-
 		// La lingua segue le preferenze di sistema (Locale Kit): nessun
 		// selettore qui. Per cambiarla: Preferenze > Locale.
 
@@ -1772,52 +1770,80 @@ public:
 				? B_TRANSLATE("Remove from Deskbar") : B_TRANSLATE("Add to Deskbar"),
 			new BMessage(kMsgToggleDeskbar));
 
-		// Intestazioni sezione (grassetto).
-		auto MakeLabel = [](const char* text) {
-			BStringView* sv = new BStringView("", text);
-			sv->SetFont(be_bold_font);
-			return sv;
+		// Ogni sezione e' una scheda del BTabView. Una pagina = BGroupView
+		// verticale con inset di finestra; il nome diventa l'etichetta della
+		// scheda.
+		auto MakePage = [](const char* name) {
+			BGroupView* v = new BGroupView(name, B_VERTICAL,
+				B_USE_HALF_ITEM_SPACING);
+			v->GroupLayout()->SetInsets(B_USE_WINDOW_INSETS);
+			return v;
 		};
 
-		// Layout senza BBox (piu' stabile).
-		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
-			.SetInsets(B_USE_WINDOW_INSETS)
-			.Add(MakeLabel(B_TRANSLATE("General")))
+		BGroupView* generalPage = MakePage(B_TRANSLATE("General"));
+		BLayoutBuilder::Group<>(generalPage)
 			.Add(fAliasField)
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
 				.Add(fDestDirField, 1.0)
 				.Add(browseBtn, 0.0)
 			.End()
-			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(B_TRANSLATE("Network")))
+			.AddGlue();
+
+		BGroupView* networkPage = MakePage(B_TRANSLATE("Network"));
+		BLayoutBuilder::Group<>(networkPage)
 			.Add(fPortField)
-			.Add(fHttpsBox)
-			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(B_TRANSLATE("Security")))
+			.Add(new BStringView("",
+				B_TRANSLATE("Transfers are always encrypted (HTTPS).")))
+			.AddGlue();
+
+		BGroupView* receivePage = MakePage(B_TRANSLATE("Receiving"));
+		BLayoutBuilder::Group<>(receivePage)
 			.Add(fPinField)
 			.Add(fQuickSaveBox)
 			.Add(fAutoAcceptFavBox)
-			.Add(fAutoDownloadBoardBox)
+			.AddGlue();
+
+		BGroupView* boardPage = MakePage(B_TRANSLATE("Board"));
+		BLayoutBuilder::Group<>(boardPage)
 			.Add(fBoardVisField)
+			.Add(fAutoDownloadBoardBox)
 			.AddGroup(B_HORIZONTAL)
 				.Add(fManagePriorityBtn)
 				.AddGlue()
 			.End()
-			.AddStrut(B_USE_ITEM_SPACING)
-			.Add(MakeLabel(B_TRANSLATE("Integration")))
+			.AddGlue();
+
+		BGroupView* integrationPage = MakePage(B_TRANSLATE("Integration"));
+		BLayoutBuilder::Group<>(integrationPage)
 			.AddGroup(B_HORIZONTAL)
 				.Add(fDeskbarBtn)
 				.AddGlue()
 			.End()
 			// Replicant desktop: anteprima viva della drop-zone con la
-			// maniglia BDragger. L'utente la trascina sul desktop (serve
-			// "Show replicants" attivo nella Deskbar).
+			// maniglia BDragger. Trascinala sul desktop ("Show replicants"
+			// attivo nella Deskbar).
 			.AddGroup(B_HORIZONTAL, B_USE_HALF_ITEM_SPACING)
-				.Add(new BStringView("", B_TRANSLATE("Desktop replicant (drag to your desktop):")))
+				.Add(new BStringView("", B_TRANSLATE(
+					"Desktop replicant (drag to your desktop):")))
 				.Add(NewLocalSendDropView(48))
 				.AddGlue()
 			.End()
-			.AddGlue()
+			.AddGlue();
+
+		BTabView* tabView = new BTabView("tabs", B_WIDTH_FROM_LABEL);
+		tabView->AddTab(generalPage);
+		tabView->AddTab(networkPage);
+		tabView->AddTab(receivePage);
+		tabView->AddTab(boardPage);
+		tabView->AddTab(integrationPage);
+		// La riga di tab e' piu' larga del contenuto delle pagine: senza un
+		// minimo esplicito, B_AUTO_UPDATE_SIZE_LIMITS restringerebbe la
+		// finestra al contenuto e taglierebbe le ultime tab.
+		tabView->SetExplicitMinSize(BSize(480, B_SIZE_UNSET));
+
+		BLayoutBuilder::Group<>(this, B_VERTICAL, B_USE_HALF_ITEM_SPACING)
+			.SetInsets(B_USE_WINDOW_INSETS)
+			.Add(tabView)
 			.AddGroup(B_HORIZONTAL)
 				.AddGlue()
 				.Add(cancelBtn)
@@ -1958,7 +1984,6 @@ private:
 	BPopUpMenu* fBoardVisMenu;
 	BMenuField* fBoardVisField;
 	BButton* fManagePriorityBtn;
-	BCheckBox* fHttpsBox;
 	BFilePanel* fDirPanel;
 	BButton* fDeskbarBtn;
 };

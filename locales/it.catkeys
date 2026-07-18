@@ -1,4 +1,4 @@
-1	it	x-vnd.LocalSend	1778767245
+1	it	x-vnd.LocalSend	3931416296
 %d device on network	LocalSend		%d dispositivo in rete
 Received: 	LocalSend		Ricevuto: 
 Send	LocalSend		Invia
@@ -34,7 +34,6 @@ Sending…	LocalSend		Invio in corso…
 Choose files to send	LocalSend		Scegli file da inviare
 Remove from favorites	LocalSend		Rimuovi dai preferiti
 %d files on the board	LocalSend		%d file in bacheca
-Security	LocalSend		Sicurezza
 Remove	LocalSend		Rimuovi
 These devices can see your board when visibility is set to \"Priority contacts only\".	LocalSend		Questi dispositivi possono vedere la tua bacheca quando la visibilità è impostata su \"Solo contatti prioritari\".
 Remove from priority contacts	LocalSend		Rimuovi dai contatti prioritari
@@ -70,17 +69,18 @@ Add to Deskbar	LocalSend		Aggiungi al Deskbar
 Incoming transfer	LocalSend		Trasferimento in arrivo
 Quick save (accept all)	LocalSend		Salvataggio rapido (accetta tutto)
 PIN required	LocalSend		PIN richiesto
-Enable HTTPS	LocalSend		Abilita HTTPS
 Save	LocalSend		Salva
 Add files…	LocalSend		Aggiungi file…
 Board	LocalSend		Bacheca
 Refresh	LocalSend		Aggiorna
 Drag files here, or straight onto a device	LocalSend		Trascina i file qui, o direttamente su un dispositivo
+Transfers are always encrypted (HTTPS).	LocalSend		I trasferimenti sono sempre cifrati (HTTPS).
 Board visible to:	LocalSend		Bacheca visibile a:
 Send file…	LocalSend		Invia file…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		Accetta automaticamente dai preferiti
 Auto-download from favorites' boards	LocalSend		Scarica automaticamente dalla bacheca dei preferiti
+Receiving	LocalSend		Ricezione
 Tools	LocalSend		Strumenti
 Remove from board	LocalSend		Rimuovi dalla bacheca
 Send to circle…	LocalSend		Invia alla cerchia…

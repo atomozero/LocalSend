@@ -1,4 +1,4 @@
-1	en	x-vnd.LocalSend	1778767245
+1	en	x-vnd.LocalSend	3931416296
 %d device on network	LocalSend		%d device on network
 Received: 	LocalSend		Received: 
 Send	LocalSend		Send
@@ -34,7 +34,6 @@ Sending…	LocalSend		Sending…
 Choose files to send	LocalSend		Choose files to send
 Remove from favorites	LocalSend		Remove from favorites
 %d files on the board	LocalSend		%d files on the board
-Security	LocalSend		Security
 Remove	LocalSend		Remove
 These devices can see your board when visibility is set to \"Priority contacts only\".	LocalSend		These devices can see your board when visibility is set to \"Priority contacts only\".
 Remove from priority contacts	LocalSend		Remove from priority contacts
@@ -70,17 +69,18 @@ Add to Deskbar	LocalSend		Add to Deskbar
 Incoming transfer	LocalSend		Incoming transfer
 Quick save (accept all)	LocalSend		Quick save (accept all)
 PIN required	LocalSend		PIN required
-Enable HTTPS	LocalSend		Enable HTTPS
 Save	LocalSend		Save
 Add files…	LocalSend		Add files…
 Board	LocalSend		Board
 Refresh	LocalSend		Refresh
 Drag files here, or straight onto a device	LocalSend		Drag files here, or straight onto a device
+Transfers are always encrypted (HTTPS).	LocalSend		Transfers are always encrypted (HTTPS).
 Board visible to:	LocalSend		Board visible to:
 Send file…	LocalSend		Send file…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		Auto-accept from favorites
 Auto-download from favorites' boards	LocalSend		Auto-download from favorites' boards
+Receiving	LocalSend		Receiving
 Tools	LocalSend		Tools
 Remove from board	LocalSend		Remove from board
 Send to circle…	LocalSend		Send to circle…

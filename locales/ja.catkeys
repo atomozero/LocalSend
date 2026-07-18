@@ -1,4 +1,4 @@
-1	ja	x-vnd.LocalSend	1778767245
+1	ja	x-vnd.LocalSend	3931416296
 %d device on network	LocalSend		%d device on network
 Received: 	LocalSend		受信: 
 Send	LocalSend		Send
@@ -34,7 +34,6 @@ Sending…	LocalSend		送信中…
 Choose files to send	LocalSend		送信するファイルを選択
 Remove from favorites	LocalSend		お気に入りから削除
 %d files on the board	LocalSend		掲示板に%d件のファイル
-Security	LocalSend		セキュリティ
 Remove	LocalSend		削除
 These devices can see your board when visibility is set to \"Priority contacts only\".	LocalSend		公開範囲が「優先連絡先のみ」の場合、これらのデバイスが掲示板を閲覧できます。
 Remove from priority contacts	LocalSend		優先連絡先から削除
@@ -70,17 +69,18 @@ Add to Deskbar	LocalSend		Deskbarに追加
 Incoming transfer	LocalSend		受信ファイル
 Quick save (accept all)	LocalSend		クイック保存（すべて受信）
 PIN required	LocalSend		PIN required
-Enable HTTPS	LocalSend		HTTPSを有効にする
 Save	LocalSend		保存
 Add files…	LocalSend		ファイルを追加…
 Board	LocalSend		掲示板
 Refresh	LocalSend		更新
 Drag files here, or straight onto a device	LocalSend		Drag files here, or straight onto a device
+Transfers are always encrypted (HTTPS).	LocalSend		Transfers are always encrypted (HTTPS).
 Board visible to:	LocalSend		掲示板の公開先:
 Send file…	LocalSend		ファイルを送信…
 OK	LocalSend		OK
 Auto-accept from favorites	LocalSend		お気に入りから自動受信
 Auto-download from favorites' boards	LocalSend		お気に入りの掲示板から自動ダウンロード
+Receiving	LocalSend		Receiving
 Tools	LocalSend		Tools
 Remove from board	LocalSend		掲示板から削除
 Send to circle…	LocalSend		サークルに送信…
