@@ -68,6 +68,9 @@ public:
 
 private:
 	void Run();
+	// Apre e configura il socket multicast (bind + join + opzioni). Ritorna
+	// false se la rete non e' pronta: il thread ritenta finche' non riesce.
+	bool _OpenSocket();
 	// Serializza l'annuncio corrente sotto lock (fInfo puo' cambiare
 	// via SetBoard mentre il thread invia).
 	std::string _AnnounceJson(bool announce);

@@ -39,11 +39,20 @@ MulticastAnnouncer::~MulticastAnnouncer()
 bool
 MulticastAnnouncer::Start()
 {
+	// Avvia sempre il thread: se la rete non e' ancora pronta (es. al boot,
+	// prima del DHCP) il socket verra' aperto piu' tardi, ritentando.
+	fRunning = true;
+	fThread = std::thread(&MulticastAnnouncer::Run, this);
+	return true;
+}
+
+
+bool
+MulticastAnnouncer::_OpenSocket()
+{
 	fFd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (fFd < 0) {
-		perror("multicast: socket");
+	if (fFd < 0)
 		return false;
-	}
 
 	int yes = 1;
 	setsockopt(fFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
@@ -54,7 +63,6 @@ MulticastAnnouncer::Start()
 	bindAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	bindAddr.sin_port = htons(kDefaultPort);
 	if (bind(fFd, (sockaddr*)&bindAddr, sizeof(bindAddr)) < 0) {
-		perror("multicast: bind");
 		close(fFd);
 		fFd = -1;
 		return false;
@@ -90,7 +98,7 @@ MulticastAnnouncer::Start()
 	mreq.imr_interface.s_addr = ifAddr;
 	if (setsockopt(fFd, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 			&mreq, sizeof(mreq)) < 0) {
-		perror("multicast: IP_ADD_MEMBERSHIP");
+		// Rete non pronta (nessuna interfaccia/rotta): ritenta piu' tardi.
 		close(fFd);
 		fFd = -1;
 		return false;
@@ -105,8 +113,6 @@ MulticastAnnouncer::Start()
 	unsigned char ttl = 1;
 	setsockopt(fFd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
 
-	fRunning = true;
-	fThread = std::thread(&MulticastAnnouncer::Run, this);
 	return true;
 }
 
@@ -179,6 +185,15 @@ MulticastAnnouncer::_AnnounceJson(bool announce)
 void
 MulticastAnnouncer::Run()
 {
+	// Apri il socket, ritentando finche' la rete non e' pronta: all'avvio al
+	// boot l'interfaccia/rotta puo' non esistere ancora. Senza questo l'app
+	// resterebbe muta (nessun annuncio, nessuna scoperta) per tutta la
+	// sessione.
+	while (fRunning && !_OpenSocket())
+		usleep(2000000);
+	if (!fRunning)
+		return;
+
 	sockaddr_in groupAddr{};
 	groupAddr.sin_family = AF_INET;
 	groupAddr.sin_addr.s_addr = inet_addr(kMulticastGroup);
