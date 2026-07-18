@@ -189,7 +189,9 @@ enum BoardVisibility {
 
 struct AppSettings {
 	std::string alias = "Haiku Box";
-	std::string destDir = "./ricevuti";
+	// Relativo -> risolto contro la home (vedi migrazione all'avvio):
+	// "Downloads" e' la cartella standard della home Haiku.
+	std::string destDir = "Downloads";
 	int port = 53317;
 	std::string pin;
 	bool quickSave = false;
@@ -5348,6 +5350,24 @@ LocalSendApp::LocalSendApp()
 	if (!fSettings.Load(kSettingsFile)) {
 		fSettings.alias = GenerateRandomAlias();
 		fSettings.Save(kSettingsFile);
+	}
+	// Il vecchio default relativo "./ricevuti" (mai cambiato dall'utente)
+	// dipendeva dalla CWD: al boot/Deskbar i file finivano in posti
+	// imprevedibili. Spostalo sulla cartella Downloads standard della home.
+	if (fSettings.destDir == "./ricevuti")
+		fSettings.destDir = "Downloads";
+	// Rendi assoluto qualunque percorso relativo, risolvendolo contro la HOME
+	// (non la CWD), e persistilo cosi' Impostazioni mostra dove vanno i file.
+	if (!fSettings.destDir.empty() && fSettings.destDir[0] != '/') {
+		std::string rel = fSettings.destDir;
+		if (rel.rfind("./", 0) == 0)
+			rel = rel.substr(2);
+		BPath home;
+		if (find_directory(B_USER_DIRECTORY, &home) == B_OK
+				&& home.Path() != NULL) {
+			fSettings.destDir = std::string(home.Path()) + "/" + rel;
+			fSettings.Save(kSettingsFile);
+		}
 	}
 	fTls = CreateSelfSignedTls("localsend");
 

@@ -4,7 +4,9 @@
 #include <unistd.h>
 
 #include <File.h>
+#include <FindDirectory.h>
 #include <NodeInfo.h>
+#include <Path.h>
 
 #include <cerrno>
 #include <cstdio>
@@ -13,15 +15,36 @@
 
 namespace LocalSend {
 
+namespace {
+
+// Rende assoluta la cartella di destinazione. Un percorso relativo viene
+// risolto contro la HOME dell'utente, NON contro la cartella di lavoro: al
+// boot o lanciando dalla Deskbar la CWD e' imprevedibile (/, /boot/home, ...)
+// e i file finivano dove nessuno li cercava. Cosi' "./ricevuti" diventa
+// sempre "<home>/ricevuti".
+std::string
+NormalizeDir(std::string dir)
+{
+	while (dir.size() > 1 && dir.back() == '/')
+		dir.pop_back();
+	if (dir.empty())
+		dir = "Downloads";
+	if (dir[0] == '/')
+		return dir; // gia' assoluto
+	if (dir.rfind("./", 0) == 0)
+		dir = dir.substr(2);
+	BPath home;
+	if (find_directory(B_USER_DIRECTORY, &home) == B_OK && home.Path() != NULL)
+		return std::string(home.Path()) + "/" + dir;
+	return dir; // fallback: lascia com'e'
+}
+
+} // namespace
+
 FileSink::FileSink(std::string destDir)
 	:
-	fDestDir(std::move(destDir))
+	fDestDir(NormalizeDir(std::move(destDir)))
 {
-	// Niente slash finale, cosi' la join "dir/name" e' sempre pulita.
-	while (fDestDir.size() > 1 && fDestDir.back() == '/')
-		fDestDir.pop_back();
-	if (fDestDir.empty())
-		fDestDir = ".";
 }
 
 
@@ -142,11 +165,7 @@ FileSink::Save(const std::string& fileName, const std::string& bytes,
 void
 FileSink::SetDir(const std::string& dir)
 {
-	fDestDir = dir;
-	while (fDestDir.size() > 1 && fDestDir.back() == '/')
-		fDestDir.pop_back();
-	if (fDestDir.empty())
-		fDestDir = ".";
+	fDestDir = NormalizeDir(dir);
 }
 
 } // namespace LocalSend
